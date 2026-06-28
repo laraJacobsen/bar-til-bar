@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { UploadPanel } from '@/components/UploadPanel';
-import { buildBarMeetups, getGroups, type GroupDoc } from '@/lib/group';
+import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, type GroupDoc } from '@/lib/group';
 
 const challengeCards = [
-  { title: 'Team selfie', points: 50, difficulty: 'easy', icon: '📸' },
+  { title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
   { title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
   { title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
 ];
@@ -15,12 +15,22 @@ export default function ChallengesPage() {
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [activeBarIndex, setActiveBarIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
+  const [mounted, setMounted] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+
     const loadGroups = async () => {
       try {
         const nextGroups = await getGroups();
         setGroups(nextGroups);
+
+        const sharedBarIndex = nextGroups.find((group) => typeof group.currentBarIndex === 'number')?.currentBarIndex;
+        if (typeof sharedBarIndex === 'number') {
+          setActiveBarIndex(sharedBarIndex);
+        }
       } catch {
         setGroups([]);
       }
@@ -47,6 +57,19 @@ export default function ChallengesPage() {
   const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), ['North Star', 'Velvet Room', 'Neon Tunnel', 'Golden Hour']), [groups]);
   const activeBar = bars[activeBarIndex] ?? bars[0];
 
+  const handleAdvanceToNextBar = async () => {
+    setIsAdvancing(true);
+    try {
+      const nextIndex = await advanceAllGroupsToNextBar(groups.map((group) => group.id), activeBarIndex);
+      setActiveBarIndex(nextIndex);
+      setTimeLeft(15 * 60);
+      setGroups((currentGroups) => currentGroups.map((group) => ({ ...group, currentBarIndex: nextIndex })));
+    } finally {
+      setIsAdvancing(false);
+      setShowConfirmModal(false);
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
     const secs = (seconds % 60).toString().padStart(2, '0');
@@ -54,7 +77,7 @@ export default function ChallengesPage() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current meetup</p>
@@ -84,8 +107,16 @@ export default function ChallengesPage() {
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">4-bar route</h2>
-          <span className="text-sm text-slate-400">Each stop pairs two groups</span>
+          <button
+            type="button"
+            onClick={() => setShowConfirmModal(true)}
+            disabled={isAdvancing}
+            className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white"
+          >
+            {isAdvancing ? 'Moving…' : 'Next bar'}
+          </button>
         </div>
+        <p className="mt-2 text-sm text-slate-400">Advance the whole crawl to the next stop and lock in the current submissions.</p>
         <div className="mt-4 space-y-3">
           {bars.map((bar, index) => (
             <div
@@ -126,7 +157,27 @@ export default function ChallengesPage() {
         </div>
       </section>
 
-      <UploadPanel />
+      {mounted ? <UploadPanel /> : null}
+
+      {showConfirmModal ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6 shadow-2xl">
+            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Confirm bar change</p>
+            <h3 className="mt-3 text-2xl font-semibold">All photos will be submitted for this bar</h3>
+            <p className="mt-3 text-sm text-slate-400">
+              Once you move on, the current bar submissions will be locked in and you won&apos;t be able to redo them. Are you sure you want to continue to the next bar?
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => setShowConfirmModal(false)} className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-slate-100">
+                Cancel
+              </button>
+              <button type="button" onClick={handleAdvanceToNextBar} disabled={isAdvancing} className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white">
+                {isAdvancing ? 'Moving…' : 'Yes, continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import { addDoc, collection, doc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { BarDoc, ChallengeDoc, EventDoc, TeamDoc } from '@/lib/types';
+import type { BarDoc, ChallengeDoc, EventDoc, GroupDocType } from '@/lib/types';
 
 export async function seedDemoData() {
   const eventsSnap = await getDocs(collection(db, 'events'));
@@ -33,8 +33,8 @@ export async function seedDemoData() {
   }
 
   const challenges: Array<Omit<ChallengeDoc, 'id'>> = [
-    { barId: 'north-star', title: 'Team selfie', description: 'Take a group selfie in front of the venue.', points: 50, difficulty: 'easy', requiresPhoto: true },
-    { barId: 'velvet-room', title: 'Human pyramid', description: 'Build a silly human pyramid with your team.', points: 80, difficulty: 'medium', requiresPhoto: true },
+    { barId: 'north-star', title: 'Group selfie', description: 'Take a group selfie in front of the venue.', points: 50, difficulty: 'easy', requiresPhoto: true },
+    { barId: 'velvet-room', title: 'Human pyramid', description: 'Build a silly human pyramid with your group.', points: 80, difficulty: 'medium', requiresPhoto: true },
     { barId: 'neon-tunnel', title: 'Find someone wearing red', description: 'Spot a red outfit and snap the moment.', points: 60, difficulty: 'easy', requiresPhoto: true },
   ];
 
@@ -46,16 +46,16 @@ export async function seedDemoData() {
     });
   }
 
-  const teams: Array<Omit<TeamDoc, 'id'>> = [
+  const groups: Array<Omit<GroupDocType, 'id'>> = [
     { name: 'Neon Crew', color: '#f43f5e', members: ['Ari', 'Max'], score: 120, currentBarId: 'north-star', routeProgress: 1, routeId: 'route-a' },
     { name: 'Midnight Mix', color: '#8b5cf6', members: ['Jules', 'Sam'], score: 90, currentBarId: 'velvet-room', routeProgress: 1, routeId: 'route-b' },
   ];
 
-  for (const team of teams) {
-    const teamId = team.name.toLowerCase().replace(/\s+/g, '-');
-    await setDoc(doc(db, 'teams', teamId), {
-      id: teamId,
-      ...team,
+  for (const group of groups) {
+    const groupId = group.name.toLowerCase().replace(/\s+/g, '-');
+    await setDoc(doc(db, 'groups', groupId), {
+      id: groupId,
+      ...group,
     });
   }
 }
@@ -78,7 +78,7 @@ export async function getChallenges(): Promise<ChallengeDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
 }
 
-export async function createSubmission(input: { teamId: string; barId: string; challengeId: string; photoUrl: string }) {
+export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string }) {
   return addDoc(collection(db, 'submissions'), {
     ...input,
     status: 'pending',

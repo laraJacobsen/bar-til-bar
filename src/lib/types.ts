@@ -1,4 +1,4 @@
-export type UserRole = 'team' | 'admin';
+export type UserRole = 'group' | 'admin';
 
 export interface EventDoc {
   id: string;
@@ -10,7 +10,7 @@ export interface EventDoc {
   createdAt: string;
 }
 
-export interface TeamDoc {
+export interface GroupDocType {
   id: string;
   name: string;
   color: string;
@@ -43,7 +43,7 @@ export interface ChallengeDoc {
 
 export interface SubmissionDoc {
   id: string;
-  teamId: string;
+  groupId: string;
   barId: string;
   challengeId: string;
   photoUrl?: string;
