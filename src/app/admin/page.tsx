@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { addDoc, collection, doc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { createGroup, getGroups, type GroupDoc } from '@/lib/group';
-import type { BarDoc, ChallengeDoc, EventDoc } from '@/lib/types';
+import { getAllSubmissions } from '@/lib/firestore';
+import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
   const [eventName, setEventName] = useState('Saturday Night Crawl');
@@ -16,14 +17,18 @@ export default function AdminPage() {
   const [challengeBarId, setChallengeBarId] = useState('');
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [submissions, setSubmissions] = useState<SubmissionDoc[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     const loadData = async () => {
       const barsSnap = await getDocs(collection(db, 'bars'));
       const groupsSnap = await getDocs(collection(db, 'groups'));
+      const allSubs = await getAllSubmissions();
       setBars(barsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<BarDoc, 'id'>) })));
       setGroups(groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) })));
+      setSubmissions(allSubs);
     };
 
     loadData();
@@ -83,6 +88,10 @@ export default function AdminPage() {
     setMessage('Challenge added.');
   };
 
+  const allGroupsHaveSubmissions = groups.length > 0 && groups.every((group) => submissions.some((submission) => submission.groupId === group.id));
+  const selectedGroup = selectedGroupId ? groups.find((group) => group.id === selectedGroupId) ?? null : null;
+  const selectedGroupSubmissions = selectedGroup ? submissions.filter((submission) => submission.groupId === selectedGroup.id) : [];
+
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
       <div className="flex items-center justify-between">
@@ -123,6 +132,61 @@ export default function AdminPage() {
         <div className="mt-3 space-y-2">
           {groups.map((group) => <div key={group.id} className="rounded-2xl bg-slate-900/60 p-3 text-sm">{group.name}</div>)}
         </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+        <h2 className="text-xl font-semibold">Approval queue</h2>
+        <p className="mt-2 text-sm text-slate-400">Approval pages appear once every group has at least one submission.</p>
+        {!allGroupsHaveSubmissions ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
+            Waiting for all groups to submit their first challenge before approval pages appear.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {groups.map((group) => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => setSelectedGroupId(group.id)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-4 text-left text-sm text-slate-100 transition hover:border-pink-400/40 hover:bg-slate-900"
+              >
+                <div className="flex items-center justify-between">
+                  <span>{group.name}</span>
+                  <span className="text-slate-400">{submissions.filter((submission) => submission.groupId === group.id).length} submissions</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selectedGroup ? (
+          <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-slate-900/70 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">{selectedGroup.name}</h3>
+                <p className="text-sm text-slate-400">Review approved submissions</p>
+              </div>
+              <button type="button" onClick={() => setSelectedGroupId(null)} className="text-sm text-pink-200 hover:text-white">Close</button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {selectedGroupSubmissions.length ? selectedGroupSubmissions.map((submission) => (
+                <div key={submission.id} className="rounded-2xl bg-slate-950/80 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-slate-400">{submission.challengeId}</p>
+                      <p className="mt-1 text-base font-semibold">Bar: {submission.barId}</p>
+                    </div>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs text-emerald-200">{submission.status}</span>
+                  </div>
+                  <p className="mt-3 text-sm text-slate-400">Submitted {new Date(submission.createdAt).toLocaleString()}</p>
+                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-40 w-full rounded-2xl object-cover" /> : null}
+                </div>
+              )) : (
+                <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">No submissions yet for this group.</div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">

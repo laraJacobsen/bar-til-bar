@@ -1,6 +1,6 @@
-import { addDoc, collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { BarDoc, ChallengeDoc, EventDoc, GroupDocType } from '@/lib/types';
+import type { BarDoc, ChallengeDoc, EventDoc, GroupDocType, SubmissionDoc } from '@/lib/types';
 
 export async function seedDemoData() {
   const eventsSnap = await getDocs(collection(db, 'events'));

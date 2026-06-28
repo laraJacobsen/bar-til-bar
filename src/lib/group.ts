@@ -43,7 +43,7 @@ export async function joinGroup({ code, userId }: { code: string; userId: string
   const group = groupDoc.data() as GroupDoc;
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
   await setDoc(doc(db, 'groups', groupDoc.id), { ...group, members }, { merge: true });
-  return { id: groupDoc.id, ...group, members } as GroupDoc;
+  return { ...group, id: groupDoc.id, members } as GroupDoc;
 }
 
 export async function getUserGroup(userId: string) {
@@ -52,7 +52,7 @@ export async function getUserGroup(userId: string) {
   if (snapshot.empty) return null;
   const groupDoc = snapshot.docs[0];
   const group = groupDoc.data() as GroupDoc;
-  return { id: groupDoc.id, ...group };
+  return { ...group, id: groupDoc.id };
 }
 
 export async function getGroups(): Promise<GroupDoc[]> {
@@ -129,4 +129,8 @@ export function buildBarMeetups(groupNames: string[], barNames: string[]) {
 
 export async function updateGroupScore(groupId: string, newScore: number) {
   await setDoc(doc(db, 'groups', groupId), { score: newScore }, { merge: true });
+}
+
+export async function updateGroupPicture(groupId: string, pictureUrl: string) {
+  await setDoc(doc(db, 'groups', groupId), { pictureUrl }, { merge: true });
 }

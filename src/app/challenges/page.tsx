@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { UploadPanel } from '@/components/UploadPanel';
 import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, getUserGroup, updateGroupScore, type GroupDoc } from '@/lib/group';
-import { createSubmission, getBars, getChallenges, getSubmissionsByGroup, type ChallengeDoc, type SubmissionDoc } from '@/lib/firestore';
+import { createSubmission, getBars, getChallenges, getSubmissionsByGroup } from '@/lib/firestore';
+import type { BarDoc, ChallengeDoc, SubmissionDoc } from '@/lib/types';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
 
@@ -15,10 +16,19 @@ const challengeCards = [
   { id: 'find-red', title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
 ];
 
+const challengeIcons: Record<string, string> = {
+  'group-selfie': '📸',
+  'human-pyramid': '🧍',
+  'find-red': '🔴',
+};
+
 export default function ChallengesPage() {
   const { user } = useAuth();
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(null);
+  const [barDocs, setBarDocs] = useState<BarDoc[]>([]);
+  const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
+  const [submissions, setSubmissions] = useState<SubmissionDoc[]>([]);
   const [activeBarIndex, setActiveBarIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [mounted, setMounted] = useState(false);
@@ -28,32 +38,40 @@ export default function ChallengesPage() {
   // Challenge submission state
   const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
 
-    const loadGroups = async () => {
+    const loadData = async () => {
       try {
-        const nextGroups = await getGroups();
+        const [nextGroups, nextBarDocs, nextChallenges] = await Promise.all([getGroups(), getBars(), getChallenges()]);
         setGroups(nextGroups);
-
-        if (user?.uid) {
-          const group = await getUserGroup(user.uid);
-          setCurrentGroup(group ?? null);
-        }
+        setBarDocs(nextBarDocs);
+        setChallenges(nextChallenges);
 
         const sharedBarIndex = nextGroups.find((group) => typeof group.currentBarIndex === 'number')?.currentBarIndex;
         if (typeof sharedBarIndex === 'number') {
           setActiveBarIndex(sharedBarIndex);
         }
-      } catch {
+
+        if (user?.uid) {
+          const group = await getUserGroup(user.uid);
+          if (group) {
+            setCurrentGroup({ ...group, score: group.score ?? 0 });
+            const groupSubmissions = await getSubmissionsByGroup(group.id);
+            setSubmissions(groupSubmissions);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load challenge data:', error);
         setGroups([]);
       }
     };
 
-    loadGroups();
+    loadData();
   }, [user]);
 
   useEffect(() => {
@@ -71,8 +89,29 @@ export default function ChallengesPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), ['North Star', 'Velvet Room', 'Neon Tunnel', 'Golden Hour']), [groups]);
+  const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), barDocs.map((bar) => bar.name)), [groups, barDocs]);
   const activeBar = bars[activeBarIndex] ?? bars[0];
+
+  const approvedSubmissions = useMemo(
+    () => submissions.filter((submission) => submission.status === 'approved'),
+    [submissions],
+  );
+
+  const challengeMap = useMemo(() => new Map(challenges.map((challenge) => [challenge.id, challenge])), [challenges]);
+
+  const scoreByBar = useMemo(() => {
+    return approvedSubmissions.reduce((map, submission) => {
+      const challenge = challengeMap.get(submission.challengeId);
+      if (!challenge) return map;
+      map[submission.barId] = (map[submission.barId] || 0) + challenge.points;
+      return map;
+    }, {} as Record<string, number>);
+  }, [approvedSubmissions, challengeMap]);
+
+  const totalScore = currentGroup?.score ?? Object.values(scoreByBar).reduce((sum, value) => sum + value, 0);
+
+  const isChallengeCompleted = (challengeId: string) =>
+    approvedSubmissions.some((submission) => submission.challengeId === challengeId);
 
   const handleAdvanceToNextBar = async () => {
     setIsAdvancing(true);
@@ -96,14 +135,12 @@ export default function ChallengesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setCapturedImage(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    setSelectedFile(file);
+    setCapturedImage(URL.createObjectURL(file));
   };
 
   const handleRetake = () => {
+    setSelectedFile(null);
     setCapturedImage(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -111,31 +148,49 @@ export default function ChallengesPage() {
   };
 
   const handleSubmit = async () => {
-    if (!capturedImage || !activeChallengeId || !currentGroup) return;
+    if ((!capturedImage && !selectedFile) || !activeChallengeId || !currentGroup) return;
 
     setSubmitting(true);
     try {
-      const challenge = challengeCards.find((c) => c.id === activeChallengeId);
+      const challenge = challenges.find((c) => c.id === activeChallengeId) ?? challengeCards.find((c) => c.id === activeChallengeId);
       if (!challenge) return;
 
-      // Convert data URL to blob
-      const response = await fetch(capturedImage);
-      const blob = await response.blob();
+      const fileToUpload = selectedFile;
+      let blob: Blob;
+      if (fileToUpload) {
+        blob = fileToUpload;
+      } else {
+        const response = await fetch(capturedImage as string);
+        blob = await response.blob();
+      }
 
       // Upload image directly to Firebase Storage
       const timestamp = Date.now();
       const fileName = `submissions/${currentGroup.id}/${activeChallengeId}-${timestamp}.jpg`;
       const storageRef = ref(storage, fileName);
-      await uploadBytes(storageRef, blob, { contentType: blob.type });
+      await uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' });
       const photoUrl = await getDownloadURL(storageRef);
+
+      const barId = barDocs[activeBarIndex]?.id || barDocs[0]?.id || 'north-star';
 
       // Create submission record
       await createSubmission({
         groupId: currentGroup.id,
-        barId: activeBar?.name.toLowerCase().replace(/\s+/g, '-') || 'north-star',
+        barId,
         challengeId: activeChallengeId,
         photoUrl,
       });
+
+      const newSubmission = {
+        id: `local-${Date.now()}`,
+        groupId: currentGroup.id,
+        barId,
+        challengeId: activeChallengeId,
+        photoUrl,
+        status: 'approved' as const,
+        createdAt: new Date().toISOString(),
+      };
+      setSubmissions((prev) => [...prev, newSubmission]);
 
       // Update group score
       const newScore = (currentGroup.score || 0) + challenge.points;
@@ -160,7 +215,7 @@ export default function ChallengesPage() {
   };
 
   if (activeChallengeId && currentGroup) {
-    const challenge = challengeCards.find((c) => c.id === activeChallengeId);
+    const challenge = challenges.find((c) => c.id === activeChallengeId) ?? challengeCards.find((c) => c.id === activeChallengeId);
     if (!challenge) return null;
 
     return (
@@ -177,7 +232,7 @@ export default function ChallengesPage() {
 
         <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{challenge.icon}</span>
+            <span className="text-3xl">{(challenge as any).icon ?? challengeIcons[challenge.id] ?? '📸'}</span>
             <div>
               <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Challenge</p>
               <h1 className="text-2xl font-semibold">{challenge.title}</h1>
@@ -218,7 +273,7 @@ export default function ChallengesPage() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={!selectedFile || submitting}
                 className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 font-semibold text-white disabled:opacity-50"
               >
                 {submitting ? 'Submitting…' : 'Submit'}
@@ -259,10 +314,10 @@ export default function ChallengesPage() {
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm text-slate-400">Current score</p>
-            <h2 className="text-3xl font-semibold">{currentGroup?.score || 0}</h2>
+            <p className="text-sm text-slate-400">Total score</p>
+            <h2 className="text-3xl font-semibold">{currentGroup?.score ?? totalScore}</h2>
           </div>
           <button
             type="button"
@@ -273,12 +328,20 @@ export default function ChallengesPage() {
             {isAdvancing ? 'Moving…' : 'Next bar'}
           </button>
         </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {barDocs.map((barDoc) => (
+            <div key={barDoc.id} className="rounded-2xl bg-slate-900/60 p-4">
+              <p className="text-sm text-slate-400">{barDoc.name}</p>
+              <p className="mt-2 text-xl font-semibold">{scoreByBar[barDoc.id] ?? 0} pts</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
         <h2 className="text-xl font-semibold">Unlockable challenges</h2>
         <div className="mt-4 space-y-3">
-          {challengeCards.map((challenge) => (
+          {(challenges.length ? challenges : challengeCards).map((challenge) => (
             <button
               key={challenge.id}
               onClick={() => handleChallengeClick(challenge.id)}
@@ -286,7 +349,7 @@ export default function ChallengesPage() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-xl">{challenge.icon}</span>
+                  <span className="text-xl">{(challenge as any).icon ?? challengeIcons[challenge.id] ?? '📸'}</span>
                   <h3 className="font-semibold">{challenge.title}</h3>
                 </div>
                 <span className="rounded-full bg-brand-500/20 px-2 py-1 text-sm text-pink-100">+{challenge.points} pts</span>
@@ -294,7 +357,7 @@ export default function ChallengesPage() {
               <p className="mt-2 text-sm text-slate-400">Snap a photo and submit for review.</p>
               <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
                 <span>{challenge.difficulty}</span>
-                <span>Tap to submit</span>
+                <span>{isChallengeCompleted(challenge.id) ? 'Completed' : 'Tap to submit'}</span>
               </div>
             </button>
           ))}
