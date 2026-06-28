@@ -19,7 +19,7 @@ export default function ProfilePage() {
             ['Challenges done', '12'],
             ['Photos submitted', '8'],
             ['Badges', '3'],
-            ['Favorite challenge', 'Team selfie'],
+            ['Favorite challenge', 'Group selfie'],
           ].map(([label, value]) => (
             <div key={label} className="rounded-2xl bg-slate-900/60 p-4">
               <p className="text-sm text-slate-400">{label}</p>

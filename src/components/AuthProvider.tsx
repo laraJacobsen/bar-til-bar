@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       uid: nextUser.uid,
       email: nextUser.email,
       displayName: displayName || nextUser.displayName || 'Traveler',
-      role: 'team',
+      role: 'group',
       updatedAt: new Date().toISOString(),
     }, { merge: true });
 

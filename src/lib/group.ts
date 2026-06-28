@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export interface GroupDoc {
@@ -9,6 +9,7 @@ export interface GroupDoc {
   members: string[];
   createdAt: string;
   color?: string;
+  currentBarIndex?: number;
 }
 
 export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
@@ -22,6 +23,7 @@ export async function createGroup({ name, ownerId, color }: { name: string; owne
     members: [ownerId],
     createdAt: new Date().toISOString(),
     color: color || '#f43f5e',
+    currentBarIndex: 0,
   };
   await setDoc(groupRef, group);
   return group;
@@ -53,6 +55,54 @@ export async function getUserGroup(userId: string) {
 export async function getGroups(): Promise<GroupDoc[]> {
   const snapshot = await getDocs(collection(db, 'groups'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) }));
+}
+
+export interface GroupMemberInfo {
+  uid: string;
+  displayName: string;
+  email?: string | null;
+}
+
+export async function getGroupById(groupId: string): Promise<GroupDoc | null> {
+  const snap = await getDoc(doc(db, 'groups', groupId));
+  if (!snap.exists()) return null;
+
+  const data = snap.data() as Omit<GroupDoc, 'id'>;
+  return { id: snap.id, ...data };
+}
+
+export async function getGroupMembers(memberIds: string[]): Promise<GroupMemberInfo[]> {
+  if (!memberIds.length) return [];
+
+  const memberDocs = await Promise.all(
+    memberIds.map(async (uid) => {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (!snap.exists()) return null;
+
+      const data = snap.data() as { displayName?: string; email?: string | null };
+      return {
+        uid,
+        displayName: data.displayName || 'Traveler',
+        email: data.email || null,
+      };
+    }),
+  );
+
+  return memberDocs.flatMap((member) => (member ? [member] : []));
+}
+
+export async function advanceAllGroupsToNextBar(groupIds: string[], currentBarIndex: number) {
+  if (!groupIds.length) return (currentBarIndex + 1) % 4;
+
+  const batch = writeBatch(db);
+  const nextBarIndex = (currentBarIndex + 1) % 4;
+
+  groupIds.forEach((groupId) => {
+    batch.update(doc(db, 'groups', groupId), { currentBarIndex: nextBarIndex });
+  });
+
+  await batch.commit();
+  return nextBarIndex;
 }
 
 export function buildBarMeetups(groupNames: string[], barNames: string[]) {

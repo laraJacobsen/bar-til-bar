@@ -28,9 +28,9 @@ export function UploadPanel() {
     const photoUrl = await getDownloadURL(snapshot.ref);
 
     await addDoc(collection(db, 'submissions'), {
-      teamId: user.uid,
+      groupId: user.uid,
       barId: 'north-star',
-      challengeId: 'team-selfie',
+      challengeId: 'group-selfie',
       photoUrl,
       status: 'pending',
       createdAt: new Date().toISOString(),
