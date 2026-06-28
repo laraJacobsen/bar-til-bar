@@ -4,11 +4,12 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
+import { createGroup, joinGroup } from '@/lib/group';
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  signIn: (displayName?: string, teamCode?: string) => Promise<void>;
+  signIn: (displayName?: string, mode?: 'create' | 'join', groupName?: string, code?: string) => Promise<void>;
   signOutUser: () => Promise<void>;
 };
 
@@ -27,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const signIn = async (displayName?: string, teamCode?: string) => {
+  const signIn = async (displayName?: string, mode?: 'create' | 'join', groupName?: string, code?: string) => {
     const result = await signInWithPopup(auth, googleProvider);
     const nextUser = result.user;
 
@@ -35,10 +36,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       uid: nextUser.uid,
       email: nextUser.email,
       displayName: displayName || nextUser.displayName || 'Traveler',
-      teamCode: teamCode || null,
       role: 'team',
       updatedAt: new Date().toISOString(),
     }, { merge: true });
+
+    if (mode === 'create' && groupName) {
+      await createGroup({ name: groupName, ownerId: nextUser.uid });
+    }
+
+    if (mode === 'join' && code) {
+      await joinGroup({ code, userId: nextUser.uid });
+    }
   };
 
   const signOutUser = async () => {

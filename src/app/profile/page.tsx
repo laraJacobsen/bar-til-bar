@@ -1,6 +1,6 @@
 export default function ProfilePage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
+    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
       <div>
         <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Profile</p>
         <h1 className="text-2xl font-semibold">Ari, you&apos;re on fire</h1>

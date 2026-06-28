@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, seedDemoData } from '@/lib/firestore';
+import { getUserGroup } from '@/lib/group';
 import type { EventDoc } from '@/lib/types';
 
 const navItems = [
@@ -14,17 +17,30 @@ const navItems = [
 ] as const;
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(null);
+  const [groupName, setGroupName] = useState('');
 
   useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/login');
+      return;
+    }
+
     const load = async () => {
       await seedDemoData();
       const activeEvent = await getActiveEvent();
       setEvent(activeEvent);
+
+      if (user?.uid) {
+        const currentGroup = await getUserGroup(user.uid);
+        setGroupName(currentGroup?.name || '');
+      }
     };
 
     load();
-  }, []);
+  }, [loading, router, user]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">
@@ -37,6 +53,10 @@ export default function HomePage() {
           <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">Live</div>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Group</p>
+            <p className="mt-2 text-lg font-semibold">{groupName || 'No group yet'}</p>
+          </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current score</p>
             <p className="mt-2 text-3xl font-semibold">840</p>

@@ -9,7 +9,9 @@ export default function LoginPage() {
   const router = useRouter();
   const { user, loading, signIn } = useAuth();
   const [displayName, setDisplayName] = useState('');
-  const [teamCode, setTeamCode] = useState('');
+  const [mode, setMode] = useState<'create' | 'join'>('create');
+  const [groupName, setGroupName] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,7 +26,14 @@ export default function LoginPage() {
     setError('');
 
     try {
-      await signIn(displayName.trim() || undefined, teamCode.trim() || undefined);
+      if (mode === 'create' && !groupName.trim()) {
+        throw new Error('Please name your group.');
+      }
+      if (mode === 'join' && !code.trim()) {
+        throw new Error('Please enter the group code.');
+      }
+
+      await signIn(displayName.trim() || undefined, mode, mode === 'create' ? groupName.trim() : undefined, mode === 'join' ? code.trim() : undefined);
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.');
@@ -38,7 +47,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/10 p-6 text-center shadow-glow backdrop-blur-xl">
         <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Welcome</p>
         <h1 className="mt-2 text-3xl font-semibold">Join the crawl</h1>
-        <p className="mt-3 text-sm text-slate-400">Sign in with Google, choose a display name, and join your team.</p>
+        <p className="mt-3 text-sm text-slate-400">Sign in with Google, then create your own group or join an existing one.</p>
 
         <div className="mt-6 space-y-3 text-left">
           <label className="block text-sm text-slate-300">
@@ -51,15 +60,36 @@ export default function LoginPage() {
             />
           </label>
 
-          <label className="block text-sm text-slate-300">
-            Team code (optional)
-            <input
-              value={teamCode}
-              onChange={(event) => setTeamCode(event.target.value)}
-              placeholder="ABC123"
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
-            />
-          </label>
+          <div className="flex gap-2">
+            <button onClick={() => setMode('create')} className={`flex-1 rounded-full px-3 py-2 text-sm ${mode === 'create' ? 'bg-white text-slate-900' : 'bg-slate-900/70'}`}>
+              Make a group
+            </button>
+            <button onClick={() => setMode('join')} className={`flex-1 rounded-full px-3 py-2 text-sm ${mode === 'join' ? 'bg-white text-slate-900' : 'bg-slate-900/70'}`}>
+              Join group
+            </button>
+          </div>
+
+          {mode === 'create' ? (
+            <label className="block text-sm text-slate-300">
+              Group name
+              <input
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                placeholder="Neon Crew"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+          ) : (
+            <label className="block text-sm text-slate-300">
+              Group code
+              <input
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                placeholder="ABC123"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
+              />
+            </label>
+          )}
 
           {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
