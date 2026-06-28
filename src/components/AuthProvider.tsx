@@ -9,7 +9,7 @@ import { createGroup, joinGroup } from '@/lib/group';
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
-  signIn: (displayName?: string, mode?: 'create' | 'join', groupName?: string, code?: string) => Promise<void>;
+  signIn: (displayName?: string, mode?: 'create' | 'join', groupName?: string, code?: string) => Promise<{ createdGroupCode?: string } | undefined>;
   signOutUser: () => Promise<void>;
 };
 
@@ -41,12 +41,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, { merge: true });
 
     if (mode === 'create' && groupName) {
-      await createGroup({ name: groupName, ownerId: nextUser.uid });
+      const createdGroup = await createGroup({ name: groupName, ownerId: nextUser.uid });
+      return { createdGroupCode: createdGroup.code };
     }
 
     if (mode === 'join' && code) {
       await joinGroup({ code, userId: nextUser.uid });
     }
+
+    return undefined;
   };
 
   const signOutUser = async () => {

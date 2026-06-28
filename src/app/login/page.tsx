@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [createdGroupCode, setCreatedGroupCode] = useState('');
 
   useEffect(() => {
     if (!loading && user) {
@@ -33,7 +34,10 @@ export default function LoginPage() {
         throw new Error('Please enter the group code.');
       }
 
-      await signIn(displayName.trim() || undefined, mode, mode === 'create' ? groupName.trim() : undefined, mode === 'join' ? code.trim() : undefined);
+      const result = await signIn(displayName.trim() || undefined, mode, mode === 'create' ? groupName.trim() : undefined, mode === 'join' ? code.trim() : undefined);
+      if (mode === 'create' && result?.createdGroupCode) {
+        setCreatedGroupCode(result.createdGroupCode);
+      }
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.');
@@ -70,15 +74,24 @@ export default function LoginPage() {
           </div>
 
           {mode === 'create' ? (
-            <label className="block text-sm text-slate-300">
-              Group name
-              <input
-                value={groupName}
-                onChange={(event) => setGroupName(event.target.value)}
-                placeholder="Neon Crew"
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
-              />
-            </label>
+            <>
+              <label className="block text-sm text-slate-300">
+                Group name
+                <input
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  placeholder="Neon Crew"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
+                />
+              </label>
+              {createdGroupCode ? (
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  <p className="font-semibold">Your group code</p>
+                  <p className="mt-1 text-lg font-mono tracking-[0.35em]">{createdGroupCode}</p>
+                  <p className="mt-1 text-xs">Share this with friends so they can join.</p>
+                </div>
+              ) : null}
+            </>
           ) : (
             <label className="block text-sm text-slate-300">
               Group code
