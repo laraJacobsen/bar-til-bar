@@ -1,4 +1,9 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { getActiveEvent, seedDemoData } from '@/lib/firestore';
+import type { EventDoc } from '@/lib/types';
 
 const navItems = [
   { label: 'Home', href: '/' },
@@ -9,13 +14,25 @@ const navItems = [
 ] as const;
 
 export default function HomePage() {
+  const [event, setEvent] = useState<EventDoc | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      await seedDemoData();
+      const activeEvent = await getActiveEvent();
+      setEvent(activeEvent);
+    };
+
+    load();
+  }, []);
+
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Saturday Night</p>
-            <h1 className="text-3xl font-semibold">Bar Til Bar</h1>
+            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Live event</p>
+            <h1 className="text-3xl font-semibold">{event?.name || 'Bar Til Bar'}</h1>
           </div>
           <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">Live</div>
         </div>
@@ -39,11 +56,11 @@ export default function HomePage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-pink-100">Route progress</p>
-            <h2 className="text-xl font-semibold">Bar 2 of 6</h2>
+            <h2 className="text-xl font-semibold">Demo route in motion</h2>
           </div>
           <div className="text-right text-sm text-pink-100">
             <p>Ends in</p>
-            <p className="font-semibold">01:24:09</p>
+            <p className="font-semibold">06:00:00</p>
           </div>
         </div>
         <div className="mt-4 h-3 rounded-full bg-slate-900/70">
