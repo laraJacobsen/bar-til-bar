@@ -10,6 +10,8 @@ export interface GroupDoc {
   createdAt: string;
   color?: string;
   currentBarIndex?: number;
+  score?: number;
+  pictureUrl?: string;
 }
 
 export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
@@ -24,6 +26,7 @@ export async function createGroup({ name, ownerId, color }: { name: string; owne
     createdAt: new Date().toISOString(),
     color: color || '#f43f5e',
     currentBarIndex: 0,
+    score: 0,
   };
   await setDoc(groupRef, group);
   return group;
@@ -40,7 +43,7 @@ export async function joinGroup({ code, userId }: { code: string; userId: string
   const group = groupDoc.data() as GroupDoc;
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
   await setDoc(doc(db, 'groups', groupDoc.id), { ...group, members }, { merge: true });
-  return { id: groupDoc.id, name: group.name, code: group.code, ownerId: group.ownerId, members, createdAt: group.createdAt };
+  return { id: groupDoc.id, ...group, members } as GroupDoc;
 }
 
 export async function getUserGroup(userId: string) {
@@ -49,7 +52,7 @@ export async function getUserGroup(userId: string) {
   if (snapshot.empty) return null;
   const groupDoc = snapshot.docs[0];
   const group = groupDoc.data() as GroupDoc;
-  return { id: groupDoc.id, name: group.name, code: group.code, ownerId: group.ownerId, members: group.members, createdAt: group.createdAt };
+  return { id: groupDoc.id, ...group };
 }
 
 export async function getGroups(): Promise<GroupDoc[]> {
@@ -122,4 +125,8 @@ export function buildBarMeetups(groupNames: string[], barNames: string[]) {
     { name: bars[2], groups: [labels[1], labels[3]] },
     { name: bars[3], groups: [labels[2], labels[3]] },
   ];
+}
+
+export async function updateGroupScore(groupId: string, newScore: number) {
+  await setDoc(doc(db, 'groups', groupId), { score: newScore }, { merge: true });
 }

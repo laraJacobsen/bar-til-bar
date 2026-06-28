@@ -71,11 +71,12 @@ export default function HomePage() {
           </div>
           <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">Live</div>
         </div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl bg-slate-900/70 p-4">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <Link href={currentGroup ? '/group' : '/login'} className="rounded-2xl bg-slate-900/70 p-4 transition hover:bg-slate-900 hover:border hover:border-pink-400/30">
             <p className="text-sm text-slate-400">Group</p>
             <p className="mt-2 text-lg font-semibold">{currentGroup?.name || 'No group yet'}</p>
-          </div>
+            {currentGroup && <p className="mt-1 text-xs text-slate-500">Tap to manage</p>}
+          </Link>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current score</p>
             <p className="mt-2 text-3xl font-semibold">840</p>
@@ -110,41 +111,7 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Your crew</h3>
-          <span className="text-sm text-slate-400">{groups.length} groups</span>
-        </div>
 
-        {currentGroup ? (
-          <Link href={`/groups/${currentGroup.id}`} className="mt-4 flex flex-col gap-2 rounded-2xl border border-pink-400/30 bg-slate-900/70 p-4 transition hover:border-pink-300 hover:bg-slate-900">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm uppercase tracking-[0.3em] text-pink-200">Current group</p>
-                <h4 className="text-xl font-semibold">{currentGroup.name}</h4>
-              </div>
-              <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">{currentGroup.members.length} members</div>
-            </div>
-            <p className="text-sm text-slate-400">Tap to view members and share the join code.</p>
-          </Link>
-        ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
-            Create or join a group from the first screen to unlock your crew card.
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {groups.filter((group) => group.id !== currentGroup?.id).map((group) => (
-            <Link key={group.id} href={`/groups/${group.id}`} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition hover:border-pink-400/40 hover:bg-slate-900">
-              <div className="flex items-center justify-between">
-                <h4 className="font-semibold">{group.name}</h4>
-                <span className="text-sm text-slate-400">{group.members.length} people</span>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">Code: {group.code}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
         <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>

@@ -19,6 +19,7 @@ export interface GroupDocType {
   currentBarId?: string;
   routeProgress: number;
   routeId?: string;
+  pictureUrl?: string;
 }
 
 export interface BarDoc {

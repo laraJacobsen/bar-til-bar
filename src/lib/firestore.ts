@@ -78,10 +78,21 @@ export async function getChallenges(): Promise<ChallengeDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
 }
 
+export async function getSubmissionsByGroup(groupId: string): Promise<SubmissionDoc[]> {
+  const q = query(collection(db, 'submissions'), where('groupId', '==', groupId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
+}
+
+export async function getAllSubmissions(): Promise<SubmissionDoc[]> {
+  const snapshot = await getDocs(collection(db, 'submissions'));
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
+}
+
 export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string }) {
   return addDoc(collection(db, 'submissions'), {
     ...input,
-    status: 'pending',
+    status: 'approved',
     createdAt: new Date().toISOString(),
   });
 }
