@@ -1,0 +1,81 @@
+'use client';
+
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/components/AuthProvider';
+
+export default function LoginPage() {
+  const router = useRouter();
+  const { user, loading, signIn } = useAuth();
+  const [displayName, setDisplayName] = useState('');
+  const [teamCode, setTeamCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/');
+    }
+  }, [loading, user, router]);
+
+  const handleGoogleSignIn = async () => {
+    setBusy(true);
+    setError('');
+
+    try {
+      await signIn(displayName.trim() || undefined, teamCode.trim() || undefined);
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign-in failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-4 py-6">
+      <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/10 p-6 text-center shadow-glow backdrop-blur-xl">
+        <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Welcome</p>
+        <h1 className="mt-2 text-3xl font-semibold">Join the crawl</h1>
+        <p className="mt-3 text-sm text-slate-400">Sign in with Google, choose a display name, and join your team.</p>
+
+        <div className="mt-6 space-y-3 text-left">
+          <label className="block text-sm text-slate-300">
+            Display name
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Ari"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          <label className="block text-sm text-slate-300">
+            Team code (optional)
+            <input
+              value={teamCode}
+              onChange={(event) => setTeamCode(event.target.value)}
+              placeholder="ABC123"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
+            />
+          </label>
+
+          {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={busy}
+            className="w-full rounded-full bg-white px-4 py-3 font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {busy ? 'Signing in…' : 'Continue with Google'}
+          </button>
+
+          <Link href="/" className="block w-full rounded-full border border-white/10 px-4 py-3 text-center font-semibold">
+            Explore demo
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
