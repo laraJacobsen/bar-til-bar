@@ -8,9 +8,10 @@ export interface GroupDoc {
   ownerId: string;
   members: string[];
   createdAt: string;
+  color?: string;
 }
 
-export async function createGroup({ name, ownerId }: { name: string; ownerId: string }) {
+export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
   const code = Math.random().toString(36).slice(2, 8).toUpperCase();
   const groupRef = doc(collection(db, 'groups'));
   const group: GroupDoc = {
@@ -20,6 +21,7 @@ export async function createGroup({ name, ownerId }: { name: string; ownerId: st
     ownerId,
     members: [ownerId],
     createdAt: new Date().toISOString(),
+    color: color || '#f43f5e',
   };
   await setDoc(groupRef, group);
   return group;
@@ -53,18 +55,21 @@ export async function getGroups(): Promise<GroupDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) }));
 }
 
-export function buildBarMeetups(groupNames: string[]) {
-  const labels = groupNames.length >= 4
-    ? groupNames.slice(0, 4)
-    : [
-        ...groupNames,
-        ...Array.from({ length: 4 - groupNames.length }, (_, idx) => `Group ${groupNames.length + idx + 1}`),
-      ];
+export function buildBarMeetups(groupNames: string[], barNames: string[]) {
+  const labels = groupNames.length >= 4 ? groupNames.slice(0, 4) : [
+    ...groupNames,
+    ...Array.from({ length: 4 - groupNames.length }, (_, idx) => `Group ${groupNames.length + idx + 1}`),
+  ];
+
+  const bars = barNames.length >= 4 ? barNames.slice(0, 4) : [
+    ...barNames,
+    ...Array.from({ length: 4 - barNames.length }, (_, idx) => `Bar ${barNames.length + idx + 1}`),
+  ];
 
   return [
-    { name: 'North Star', groups: [labels[0], labels[1]] },
-    { name: 'Velvet Room', groups: [labels[0], labels[2]] },
-    { name: 'Neon Tunnel', groups: [labels[1], labels[3]] },
-    { name: 'Golden Hour', groups: [labels[2], labels[3]] },
+    { name: bars[0], groups: [labels[0], labels[1]] },
+    { name: bars[1], groups: [labels[0], labels[2]] },
+    { name: bars[2], groups: [labels[1], labels[3]] },
+    { name: bars[3], groups: [labels[2], labels[3]] },
   ];
 }

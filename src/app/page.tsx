@@ -28,6 +28,10 @@ export default function HomePage() {
       return;
     }
 
+    if (loading || !user) {
+      return;
+    }
+
     const load = async () => {
       await seedDemoData();
       const activeEvent = await getActiveEvent();
@@ -41,6 +45,17 @@ export default function HomePage() {
 
     load();
   }, [loading, router, user]);
+
+  if (loading || !user) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
+        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center backdrop-blur-xl">
+          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Bar Til Bar</p>
+          <h1 className="mt-2 text-2xl font-semibold">Redirecting to login…</h1>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">

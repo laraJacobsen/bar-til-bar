@@ -18,9 +18,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <AuthProvider>{children}</AuthProvider>
+    <html lang="en" className="h-full bg-slate-950">
+      <body className="min-h-screen bg-slate-950 text-slate-100 antialiased">
+        <AuthProvider>
+          <div className="min-h-screen bg-slate-950">{children}</div>
+        </AuthProvider>
       </body>
     </html>
   );

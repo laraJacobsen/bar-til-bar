@@ -44,7 +44,7 @@ export default function ChallengesPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name)), [groups]);
+  const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), ['North Star', 'Velvet Room', 'Neon Tunnel', 'Golden Hour']), [groups]);
   const activeBar = bars[activeBarIndex] ?? bars[0];
 
   const formatTime = (seconds: number) => {
