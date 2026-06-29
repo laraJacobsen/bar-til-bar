@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+const BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,22 +8,38 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File;
     const groupId = formData.get('groupId') as string;
     const challengeId = formData.get('challengeId') as string;
+    const idToken = formData.get('idToken') as string;
 
-    if (!file || !groupId || !challengeId) {
+    if (!file || !groupId || !challengeId || !idToken) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const buffer = await file.arrayBuffer();
-    const timestamp = Date.now();
-    const fileName = `submissions/${groupId}/${challengeId}-${timestamp}.jpg`;
-    const storageRef = ref(storage, fileName);
+    const path = `submissions/${groupId}/${challengeId}-${Date.now()}.jpg`;
+    const encodedPath = encodeURIComponent(path);
 
-    await uploadBytes(storageRef, buffer, { contentType: file.type });
-    const photoUrl = await getDownloadURL(storageRef);
+    const uploadRes = await fetch(
+      `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o?name=${encodedPath}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Firebase ${idToken}`,
+          'Content-Type': file.type || 'image/jpeg',
+        },
+        body: await file.arrayBuffer(),
+      }
+    );
 
-    return NextResponse.json({ photoUrl, fileName });
+    if (!uploadRes.ok) {
+      const text = await uploadRes.text();
+      throw new Error(`Storage upload failed (${uploadRes.status}): ${text}`);
+    }
+
+    const data = await uploadRes.json();
+    const photoUrl = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodedPath}?alt=media&token=${data.downloadTokens}`;
+
+    return NextResponse.json({ photoUrl });
   } catch (error) {
     console.error('Upload error:', error);
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

@@ -90,7 +90,7 @@ export default function HomePage() {
           </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current score</p>
-            <p className="mt-2 text-3xl font-semibold">840</p>
+            <p className="mt-2 text-3xl font-semibold">{currentGroup?.score ?? 0}</p>
           </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current challenge</p>

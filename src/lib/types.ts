@@ -37,6 +37,7 @@ export interface ChallengeDoc {
 export interface SubmissionDoc {
   id: string;
   groupId: string;
+  userId: string;
   barId: string;
   challengeId: string;
   photoUrl?: string;

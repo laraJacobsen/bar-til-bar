@@ -97,7 +97,7 @@ export async function getChallenges(): Promise<ChallengeDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
 }
 
-export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string }) {
+export async function createSubmission(input: { groupId: string; userId: string; barId: string; challengeId: string; photoUrl: string }) {
   return addDoc(collection(db, 'submissions'), {
     ...input,
     status: 'pending',

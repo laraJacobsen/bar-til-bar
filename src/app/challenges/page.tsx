@@ -3,21 +3,27 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { UploadPanel } from '@/components/UploadPanel';
-import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, type GroupDoc } from '@/lib/group';
+import { useAuth } from '@/components/AuthProvider';
+import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 
 const challengeCards = [
-  { title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
-  { title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
-  { title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
+  { id: 'group-selfie', title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
+  { id: 'human-pyramid', title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
+  { id: 'find-someone-wearing-red', title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
 ];
 
+type ChallengeCard = typeof challengeCards[0];
+
 export default function ChallengesPage() {
+  const { user } = useAuth();
   const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [userGroup, setUserGroup] = useState<GroupDoc | null>(null);
   const [activeBarIndex, setActiveBarIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [mounted, setMounted] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [activeChallenge, setActiveChallenge] = useState<ChallengeCard | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -40,6 +46,12 @@ export default function ChallengesPage() {
   }, []);
 
   useEffect(() => {
+    if (user?.uid) {
+      getUserGroup(user.uid).then((group) => setUserGroup(group ?? null));
+    }
+  }, [user]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -56,6 +68,7 @@ export default function ChallengesPage() {
 
   const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), ['North Star', 'Velvet Room', 'Neon Tunnel', 'Golden Hour']), [groups]);
   const activeBar = bars[activeBarIndex] || bars[0];
+  const completedChallenges = new Set(userGroup?.completedChallenges ?? []);
 
   const handleAdvanceToNextBar = async () => {
     setIsAdvancing(true);
@@ -68,6 +81,15 @@ export default function ChallengesPage() {
       setIsAdvancing(false);
       setShowConfirmModal(false);
     }
+  };
+
+  const handleChallengeSubmitted = (challengeId: string) => {
+    setUserGroup((prev) => prev ? {
+      ...prev,
+      completedChallenges: [...(prev.completedChallenges ?? []), challengeId],
+      score: (prev.score ?? 0) + (challengeCards.find((c) => c.id === challengeId)?.points ?? 0),
+    } : prev);
+    setActiveChallenge(null);
   };
 
   const formatTime = (seconds: number) => {
@@ -136,28 +158,58 @@ export default function ChallengesPage() {
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
-        <h2 className="text-xl font-semibold">Unlockable challenges</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Challenges</h2>
+          {userGroup && (
+            <span className="text-sm text-slate-400">{completedChallenges.size}/{challengeCards.length} done</span>
+          )}
+        </div>
         <div className="mt-4 space-y-3">
-          {challengeCards.map((challenge) => (
-            <div key={challenge.title} className="rounded-2xl bg-slate-900/60 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{challenge.icon}</span>
-                  <h3 className="font-semibold">{challenge.title}</h3>
+          {challengeCards.map((challenge) => {
+            const isCompleted = completedChallenges.has(challenge.id);
+            const isActive = activeChallenge?.id === challenge.id;
+
+            return (
+              <div key={challenge.id} className={`rounded-2xl border p-4 transition ${isCompleted ? 'border-green-500/30 bg-green-500/5' : 'border-white/10 bg-slate-900/60'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{challenge.icon}</span>
+                    <h3 className="font-semibold">{challenge.title}</h3>
+                  </div>
+                  <span className="rounded-full bg-brand-500/20 px-2 py-1 text-sm text-pink-100">+{challenge.points} pts</span>
                 </div>
-                <span className="rounded-full bg-brand-500/20 px-2 py-1 text-sm text-pink-100">+{challenge.points} pts</span>
+                <p className="mt-2 text-sm text-slate-400">Snap a photo and submit for review.</p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-sm text-slate-400">{challenge.difficulty}</span>
+                  {isCompleted ? (
+                    <span className="text-sm font-semibold text-green-400">✓ Submitted</span>
+                  ) : !isActive ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveChallenge(challenge)}
+                      className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-3 py-1 text-sm font-semibold text-white"
+                    >
+                      Submit photo
+                    </button>
+                  ) : null}
+                </div>
+
+                {mounted && isActive ? (
+                  <div className="mt-4">
+                    <UploadPanel
+                      challengeId={challenge.id}
+                      barId={activeBar?.name.toLowerCase().replace(/\s+/g, '-') ?? 'north-star'}
+                      points={challenge.points}
+                      onSubmitted={() => handleChallengeSubmitted(challenge.id)}
+                      onCancel={() => setActiveChallenge(null)}
+                    />
+                  </div>
+                ) : null}
               </div>
-              <p className="mt-2 text-sm text-slate-400">Snap a photo and submit for review.</p>
-              <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-                <span>{challenge.difficulty}</span>
-                <span>Photo required</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
-
-      {mounted ? <UploadPanel /> : null}
 
       {showConfirmModal ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">

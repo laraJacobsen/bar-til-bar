@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { arrayUnion, collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export interface GroupDoc {
@@ -12,6 +12,7 @@ export interface GroupDoc {
   currentBarIndex?: number;
   score?: number;
   pictureUrl?: string;
+  completedChallenges?: string[];
 }
 
 export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
@@ -133,4 +134,12 @@ export async function updateGroupScore(groupId: string, newScore: number) {
 
 export async function updateGroupPicture(groupId: string, pictureUrl: string) {
   await setDoc(doc(db, 'groups', groupId), { pictureUrl }, { merge: true });
+}
+
+export async function incrementGroupScore(groupId: string, points: number) {
+  await updateDoc(doc(db, 'groups', groupId), { score: increment(points) });
+}
+
+export async function markChallengeCompleted(groupId: string, challengeId: string) {
+  await updateDoc(doc(db, 'groups', groupId), { completedChallenges: arrayUnion(challengeId) });
 }
