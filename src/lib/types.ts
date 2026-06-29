@@ -10,17 +10,7 @@ export interface EventDoc {
   createdAt: string;
 }
 
-export interface GroupDocType {
-  id: string;
-  name: string;
-  color: string;
-  members: string[];
-  score: number;
-  currentBarId?: string;
-  routeProgress: number;
-  routeId?: string;
-  pictureUrl?: string;
-}
+// TeamDoc removed; groups are represented by `GroupDoc` in src/lib/group.ts
 
 export interface BarDoc {
   id: string;

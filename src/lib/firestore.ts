@@ -1,6 +1,6 @@
-import { addDoc, collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { BarDoc, ChallengeDoc, EventDoc, GroupDocType, SubmissionDoc } from '@/lib/types';
+import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export async function seedDemoData() {
   const eventsSnap = await getDocs(collection(db, 'events'));
@@ -46,16 +46,22 @@ export async function seedDemoData() {
     });
   }
 
-  const groups: Array<Omit<GroupDocType, 'id'>> = [
-    { name: 'Neon Crew', color: '#f43f5e', members: ['Ari', 'Max'], score: 120, currentBarId: 'north-star', routeProgress: 1, routeId: 'route-a' },
-    { name: 'Midnight Mix', color: '#8b5cf6', members: ['Jules', 'Sam'], score: 90, currentBarId: 'velvet-room', routeProgress: 1, routeId: 'route-b' },
+  const groups = [
+    { name: 'Neon Crew', color: '#f43f5e', members: ['Ari', 'Max'] },
+    { name: 'Midnight Mix', color: '#8b5cf6', members: ['Jules', 'Sam'] },
   ];
 
   for (const group of groups) {
     const groupId = group.name.toLowerCase().replace(/\s+/g, '-');
     await setDoc(doc(db, 'groups', groupId), {
       id: groupId,
-      ...group,
+      name: group.name,
+      code: groupId.toUpperCase().slice(0, 6),
+      ownerId: 'seed',
+      members: group.members || [],
+      createdAt: new Date().toISOString(),
+      color: group.color,
+      currentBarIndex: 0,
     });
   }
 }
@@ -64,6 +70,17 @@ export async function getActiveEvent(): Promise<EventDoc | null> {
   const snapshot = await getDocs(collection(db, 'events'));
   const events = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
   return events.find((event) => event.status === 'active') || events[0] || null;
+}
+
+export async function getEventById(id: string): Promise<EventDoc | null> {
+  const snapshot = await getDocs(collection(db, 'events'));
+  const events = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
+  return events.find((e) => e.id === id) || null;
+}
+
+export async function getEvents(): Promise<EventDoc[]> {
+  const snapshot = await getDocs(collection(db, 'events'));
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
 }
 
 export async function getBars(): Promise<BarDoc[]> {
@@ -78,21 +95,15 @@ export async function getChallenges(): Promise<ChallengeDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
 }
 
-export async function getSubmissionsByGroup(groupId: string): Promise<SubmissionDoc[]> {
-  const q = query(collection(db, 'submissions'), where('groupId', '==', groupId));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
+export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string }) {
+  return addDoc(collection(db, 'submissions'), {
+    ...input,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  });
 }
 
 export async function getAllSubmissions(): Promise<SubmissionDoc[]> {
   const snapshot = await getDocs(collection(db, 'submissions'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
-}
-
-export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string }) {
-  return addDoc(collection(db, 'submissions'), {
-    ...input,
-    status: 'approved',
-    createdAt: new Date().toISOString(),
-  });
 }
