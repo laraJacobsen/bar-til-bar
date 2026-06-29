@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { getUserGroup, updateGroupPicture } from '@/lib/group';
 import type { GroupDoc } from '@/lib/group';
+import { uploadToR2 } from '@/lib/upload';
 
 export default function GroupPage() {
   const router = useRouter();
@@ -44,19 +45,12 @@ export default function GroupPage() {
 
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('groupId', group.id);
-
-      const response = await fetch('/api/upload-group-picture', {
-        method: 'POST',
-        body: formData,
+      const pictureUrl = await uploadToR2(file, {
+        kind: 'group-picture',
+        groupId: group.id,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setGroup({ ...group, pictureUrl: data.pictureUrl });
-      }
+      await updateGroupPicture(group.id, pictureUrl);
+      setGroup({ ...group, pictureUrl });
     } catch (error) {
       console.error('Error uploading picture:', error);
     } finally {

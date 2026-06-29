@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { addDoc, collection } from 'firebase/firestore';
-import { storage, db } from '@/lib/firebase';
+import { uploadToR2 } from '@/lib/upload';
+import { createSubmission } from '@/lib/firestore';
 import { useAuth } from '@/components/AuthProvider';
 
 export function UploadPanel() {
@@ -23,28 +22,34 @@ export function UploadPanel() {
     if (!file || !user) return;
     setLoading(true);
 
-    const storageRef = ref(storage, `submissions/${user.uid}/${Date.now()}-${file.name}`);
-    const snapshot = await uploadBytes(storageRef, file);
-    const photoUrl = await getDownloadURL(snapshot.ref);
+    try {
+      const challengeId = 'group-selfie';
+      const photoUrl = await uploadToR2(file, {
+        kind: 'submission',
+        groupId: user.uid,
+        challengeId,
+      });
 
-    await addDoc(collection(db, 'submissions'), {
-      groupId: user.uid,
-      barId: 'north-star',
-      challengeId: 'group-selfie',
-      photoUrl,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    });
+      await createSubmission({
+        groupId: user.uid,
+        barId: 'north-star',
+        challengeId,
+        photoUrl,
+      });
 
-    setLoading(false);
-    setFile(null);
-    setPreviewUrl('');
+      setFile(null);
+      setPreviewUrl('');
+    } catch (error) {
+      console.error('Error uploading submission:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
       <h2 className="text-xl font-semibold">Upload proof</h2>
-      <p className="mt-2 text-sm text-slate-400">Photos are stored in Firebase Storage and reviewed by an admin.</p>
+      <p className="mt-2 text-sm text-slate-400">Photos are stored in Cloudflare R2 and reviewed by an admin.</p>
       <input type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="mt-4 w-full rounded-2xl border border-white/10 bg-slate-900/70 p-3" />
       {previewUrl ? <img src={previewUrl} alt="Upload preview" className="mt-4 h-48 w-full rounded-2xl object-cover" /> : null}
       <button onClick={handleSubmit} disabled={!file || loading} className="mt-4 w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 font-semibold">
