@@ -18,7 +18,7 @@ const navItems = [
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, dbUser, loading, signOutUser } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(null);
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(null);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
@@ -40,7 +40,7 @@ export default function HomePage() {
 
       if (user?.uid) {
         const group = await getUserGroup(user.uid);
-        setCurrentGroup(group ?? null);
+        setCurrentGroup(group || null);
       }
 
       const allGroups = await getGroups();
@@ -63,6 +63,18 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">
+      {dbUser?.role === 'admin' && (
+        <section className="flex items-center justify-between gap-4 rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4 shadow-glow-sm backdrop-blur-xl animate-fade-in">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-pink-300 font-bold">Admin Privileges Active</p>
+            <p className="mt-1 text-sm text-pink-100">You are logged in as administrator.</p>
+          </div>
+          <Link href="/admin" className="rounded-full bg-pink-500 px-4 py-2 text-xs font-semibold text-white shadow-lg hover:bg-pink-600 transition shrink-0">
+            Control Center
+          </Link>
+        </section>
+      )}
+
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div>
@@ -71,12 +83,11 @@ export default function HomePage() {
           </div>
           <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">Live</div>
         </div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Link href={currentGroup ? '/group' : '/login'} className="rounded-2xl bg-slate-900/70 p-4 transition hover:bg-slate-900 hover:border hover:border-pink-400/30">
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Group</p>
             <p className="mt-2 text-lg font-semibold">{currentGroup?.name || 'No group yet'}</p>
-            {currentGroup && <p className="mt-1 text-xs text-slate-500">Tap to manage</p>}
-          </Link>
+          </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current score</p>
             <p className="mt-2 text-3xl font-semibold">840</p>
@@ -111,12 +122,46 @@ export default function HomePage() {
         </Link>
       </section>
 
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Your crew</h3>
+          <span className="text-sm text-slate-400">{groups.length} groups</span>
+        </div>
 
+        {currentGroup ? (
+          <Link href={`/groups/${currentGroup.id}`} className="mt-4 flex flex-col gap-2 rounded-2xl border border-pink-400/30 bg-slate-900/70 p-4 transition hover:border-pink-300 hover:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.3em] text-pink-200">Current group</p>
+                <h4 className="text-xl font-semibold">{currentGroup.name}</h4>
+              </div>
+              <div className="rounded-full bg-brand-500/20 px-3 py-1 text-sm text-pink-100">{currentGroup.members.length} members</div>
+            </div>
+            <p className="text-sm text-slate-400">Tap to view members and share the join code.</p>
+          </Link>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
+            Create or join a group from the first screen to unlock your crew card.
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {groups.filter((group) => group.id !== currentGroup?.id).map((group) => (
+            <Link key={group.id} href={`/groups/${group.id}`} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 transition hover:border-pink-400/40 hover:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold">{group.name}</h4>
+                <span className="text-sm text-slate-400">{group.members.length} people</span>
+              </div>
+              <p className="mt-2 text-sm text-slate-400">Code: {group.code}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
         <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
         <ul className="mt-4 space-y-3">
-          {['Arrive at North Star', 'Complete the selfie challenge', 'Unlock the next route'].map((item) => (
+          {['Arrive at North Star', 'Complete the group selfie challenge', 'Unlock the next route'].map((item) => (
             <li key={item} className="flex items-center gap-3 rounded-2xl bg-slate-900/60 p-3">
               <div className="h-2.5 w-2.5 rounded-full bg-brand-500" />
               <span>{item}</span>
@@ -127,11 +172,29 @@ export default function HomePage() {
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl justify-between px-4 py-3">
-          {navItems.map((item) => (
-            <Link key={item.label} href={item.href} className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10">
+          {[
+            ...navItems,
+            ...(dbUser?.role === 'admin' ? [{ label: 'Admin', href: '/admin' }] : []),
+          ].map((item) => (
+            <Link key={item.label} href={item.href as any} className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10">
               {item.label}
             </Link>
           ))}
+          {user ? (
+            <button
+              onClick={async () => {
+                try {
+                  await signOutUser();
+                } catch (e) {
+                  console.error('Sign out failed', e);
+                }
+                router.replace('/login');
+              }}
+              className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10"
+            >
+              Log out
+            </button>
+          ) : null}
         </div>
       </nav>
     </main>
