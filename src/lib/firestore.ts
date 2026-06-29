@@ -29,6 +29,7 @@ export async function seedDemoData() {
     await setDoc(doc(db, 'bars', barId), {
       id: barId,
       ...bar,
+      eventId: eventId,
     });
   }
 
@@ -43,6 +44,7 @@ export async function seedDemoData() {
     await setDoc(doc(db, 'challenges', challengeId), {
       id: challengeId,
       ...challenge,
+      eventId: eventId,
     });
   }
 

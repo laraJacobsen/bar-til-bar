@@ -18,6 +18,7 @@ export interface BarDoc {
   address: string;
   description: string;
   imageUrl?: string;
+  eventId?: string;
   order: number;
 }
 
@@ -30,6 +31,7 @@ export interface ChallengeDoc {
   difficulty: 'easy' | 'medium' | 'hard';
   requiresPhoto: boolean;
   timeLimit?: number;
+  eventId?: string;
 }
 
 export interface SubmissionDoc {

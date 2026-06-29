@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { createGroup, getGroups, type GroupDoc } from '@/lib/group';
-import { getAllSubmissions } from '@/lib/firestore';
+import { getAllSubmissions, getActiveEvent, getEventById, getEvents } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
@@ -39,22 +39,76 @@ export default function AdminPage() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<{ id: string; title?: string } | null>(null);
   const [recentlyDeleted, setRecentlyDeleted] = useState<{ challenge: ChallengeDoc; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
+  const [activeEvent, setActiveEvent] = useState<EventDoc | null>(null);
+  const [events, setEvents] = useState<EventDoc[]>([]);
+  const [endEventConfirm, setEndEventConfirm] = useState(false);
+  const [deleteEventCandidate, setDeleteEventCandidate] = useState<EventDoc | null>(null);
 
   const loadData = async () => {
     const barsSnap = await getDocs(collection(db, 'bars'));
     const groupsSnap = await getDocs(collection(db, 'groups'));
     const allSubs = await getAllSubmissions();
     const challengesSnap = await getDocs(collection(db, 'challenges'));
+    const active = await getActiveEvent();
+    const allEvents = await getEvents();
     
     const loadedBars = barsSnap.docs.map((docSnap) => ({
       id: docSnap.id,
       ...(docSnap.data() as Omit<BarDoc, 'id'>),
     })).sort((a, b) => a.order - b.order);
 
-    setBars(loadedBars);
+    setActiveEvent(active);
+    setEvents(allEvents);
+    setBars(active ? loadedBars.filter((b) => ((b as any).eventId === active.id)) : loadedBars);
     setGroups(groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) })));
     setSubmissions(allSubs);
-    setChallenges(challengesSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) })));
+    const loadedChallenges = challengesSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
+    setChallenges(active ? loadedChallenges.filter((c) => ((c as any).eventId === active.id)) : loadedChallenges);
+  };
+
+  const activateEvent = async (eventId: string) => {
+    try {
+      const startsAt = new Date().toISOString();
+      await setDoc(doc(db, 'events', eventId), { status: 'active', startsAt, endsAt: undefined }, { merge: true });
+      setMessage('Event activated.');
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setMessage(err instanceof Error ? err.message : 'Failed to activate event');
+    }
+  };
+
+  const deleteEvent = async (eventId: string) => {
+    try {
+      // delete event and its associated bars/challenges/submissions
+      const batch = writeBatch(db);
+      const barsSnap = await getDocs(collection(db, 'bars'));
+      const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
+      barsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+
+      const challengesSnap = await getDocs(collection(db, 'challenges'));
+      const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
+      challengesToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+
+      const submissionsSnap = await getDocs(collection(db, 'submissions'));
+      const challengeIds = new Set(challengesToDelete.map((d) => d.id));
+      const barIds = new Set(barsToDelete.map((d) => d.id));
+      submissionsSnap.docs.forEach((docSnap) => {
+        const s = docSnap.data() as SubmissionDoc;
+        if (challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
+          batch.delete(docSnap.ref);
+        }
+      });
+
+      batch.delete(doc(db, 'events', eventId));
+      await batch.commit();
+      setMessage('Event deleted.');
+      setDeleteEventCandidate(null);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setMessage(err instanceof Error ? err.message : 'Failed to delete event');
+    }
   };
 
   useEffect(() => {
@@ -108,21 +162,34 @@ export default function AdminPage() {
     setIsInitializing(true);
     setMessage('');
     try {
+      // Only remove bars/challenges/submissions associated with the existing active event (if any).
       const batch = writeBatch(db);
-      
-      const groupsSnap = await getDocs(collection(db, 'groups'));
-      groupsSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
-      
-      const barsSnap = await getDocs(collection(db, 'bars'));
-      barsSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
-      
-      const challengesSnap = await getDocs(collection(db, 'challenges'));
-      challengesSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
-      
-      const submissionsSnap = await getDocs(collection(db, 'submissions'));
-      submissionsSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
-      
-      await batch.commit();
+      const existingActive = await getActiveEvent();
+
+      if (existingActive) {
+        // delete bars for this event
+        const barsSnap = await getDocs(collection(db, 'bars'));
+        const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === existingActive.id);
+        barsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+
+        // delete challenges for this event
+        const challengesSnap = await getDocs(collection(db, 'challenges'));
+        const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === existingActive.id);
+        challengesToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+
+        // delete submissions that reference the deleted challenges or bars
+        const submissionsSnap = await getDocs(collection(db, 'submissions'));
+        const challengeIds = new Set(challengesToDelete.map((d) => d.id));
+        const barIds = new Set(barsToDelete.map((d) => d.id));
+        submissionsSnap.docs.forEach((docSnap) => {
+          const s = docSnap.data() as SubmissionDoc;
+          if (challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
+            batch.delete(docSnap.ref);
+          }
+        });
+
+        await batch.commit();
+      }
 
       const eventId = 'active-event';
       const startsAt = new Date(startTime).toISOString();
@@ -156,6 +223,7 @@ export default function AdminPage() {
           address: `${10 + idx * 12} Market St`,
           description: `Stop #${idx + 1} on the crawl`,
           order: idx + 1,
+          eventId: eventId,
         });
 
         const challengeTitle = challengeTitles[idx % challengeTitles.length];
@@ -168,6 +236,7 @@ export default function AdminPage() {
           points: (idx + 1) * 50,
           difficulty: idx % 2 === 0 ? 'easy' : 'medium',
           requiresPhoto: true,
+          eventId: eventId,
         };
         await setDoc(doc(db, 'challenges', challengeId), challengeDoc);
       }
@@ -308,6 +377,22 @@ export default function AdminPage() {
     setMessage('Delete undone.');
   };
 
+  const endCrawl = async () => {
+    if (!activeEvent) return;
+    try {
+      const updated: EventDoc = { ...activeEvent, status: 'ended', endsAt: new Date().toISOString() };
+      await setDoc(doc(db, 'events', activeEvent.id), updated, { merge: true });
+      setMessage('Crawl ended.');
+      setActiveEvent(null);
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
+    } finally {
+      setEndEventConfirm(false);
+    }
+  };
+
   const allGroupsHaveSubmissions = groups.length > 0 && groups.every((group) => submissions.some((submission) => submission.groupId === group.id));
   const selectedGroup = selectedGroupId ? groups.find((group) => group.id === selectedGroupId) || null : null;
   const selectedGroupSubmissions = selectedGroup ? submissions.filter((submission) => submission.groupId === selectedGroup.id) : [];
@@ -324,6 +409,34 @@ export default function AdminPage() {
 
       {message ? <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">{message}</div> : null}
 
+      <section className="rounded-[1rem] border border-white/10 bg-slate-900/30 p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Events</h3>
+          <span className="text-xs text-slate-400">Manage created events</span>
+        </div>
+        <div className="mt-3 space-y-2">
+          {events.length ? events.map((ev) => (
+            <div key={ev.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3">
+              <div>
+                <p className="font-semibold">{ev.name}</p>
+                <p className="text-xs text-slate-400">{ev.status} • {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start set'}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => loadEvent(ev.id)} className="rounded-full border border-white/10 px-3 py-1 text-sm">Load</button>
+                {ev.status !== 'active' ? (
+                  <button onClick={() => activateEvent(ev.id)} className="rounded-full bg-emerald-600 px-3 py-1 text-sm text-white">Activate</button>
+                ) : (
+                  <button onClick={() => { setActiveEvent(ev); setEndEventConfirm(true); }} className="rounded-full bg-rose-500 px-3 py-1 text-sm text-white">End</button>
+                )}
+                <button onClick={() => setDeleteEventCandidate(ev)} className="rounded-full border border-white/10 px-3 py-1 text-sm text-rose-300">Delete</button>
+              </div>
+            </div>
+          )) : (
+            <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-3 text-sm text-slate-400">No events yet.</div>
+          )}
+        </div>
+      </section>
+
       {/* Crawl Wizard Trigger & Panel */}
       <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-brand-500/20 to-violet-500/20 p-6 shadow-glow backdrop-blur-xl">
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -332,13 +445,17 @@ export default function AdminPage() {
             <p className="mt-1 text-sm text-slate-400">Instantly create and launch a new bar crawl event with custom groups, start times, and routes.</p>
           </div>
           {!showWizard && (
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-center">
               <button
                 onClick={() => setShowWizard(true)}
-                className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white"
+                disabled={isInitializing || Boolean(activeEvent && activeEvent.status === 'active' && (!activeEvent.startsAt || new Date(activeEvent.startsAt).getTime() <= Date.now()))}
+                className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 🚀 Make New Bar Crawl
               </button>
+              {activeEvent && activeEvent.status === 'active' ? (
+                <button onClick={() => setEndEventConfirm(true)} className="rounded-full border border-white/10 bg-rose-600/10 px-4 py-2 text-sm text-rose-200">End Crawl</button>
+              ) : null}
               <div className="flex items-center gap-2">
                 <input value={loadEventId} onChange={(e) => setLoadEventId(e.target.value)} placeholder="event id (active-event)" className="rounded-2xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white" />
                 <button onClick={() => loadEvent()} className="rounded-full border border-white/10 px-3 py-2 text-sm">Load</button>
@@ -614,6 +731,32 @@ export default function AdminPage() {
             <div className="mt-4 flex justify-end gap-3">
               <button onClick={() => setDeleteCandidate(null)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
               <button onClick={performDeleteChallenge} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Delete</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {endEventConfirm && activeEvent ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setEndEventConfirm(false)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+            <h3 className="text-lg font-semibold">End current crawl</h3>
+            <p className="mt-2 text-sm text-slate-400">Are you sure you want to end the crawl <strong>{activeEvent.name}</strong>? This will stop progression and archive the event.</p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button onClick={() => setEndEventConfirm(false)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
+              <button onClick={endCrawl} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">End crawl</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {deleteEventCandidate ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteEventCandidate(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+            <h3 className="text-lg font-semibold">Delete event</h3>
+            <p className="mt-2 text-sm text-slate-400">Delete <strong>{deleteEventCandidate.name}</strong> and all its data? This will remove bars, challenges, and submissions for this event.</p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button onClick={() => setDeleteEventCandidate(null)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
+              <button onClick={() => deleteEvent(deleteEventCandidate.id)} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Delete</button>
             </div>
           </div>
         </div>
