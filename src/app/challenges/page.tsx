@@ -6,10 +6,12 @@ import { UploadPanel } from '@/components/UploadPanel';
 import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, type GroupDoc } from '@/lib/group';
 
 const challengeCards = [
-  { title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
-  { title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
-  { title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
+  { id: 'group-selfie', title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
+  { id: 'human-pyramid', title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
+  { id: 'find-someone-wearing-red', title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
 ];
+
+type ChallengeCard = typeof challengeCards[0];
 
 export default function ChallengesPage() {
   const [groups, setGroups] = useState<GroupDoc[]>([]);
@@ -18,6 +20,8 @@ export default function ChallengesPage() {
   const [mounted, setMounted] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [activeChallenge, setActiveChallenge] = useState<ChallengeCard | null>(null);
+  const [submitted, setSubmitted] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setMounted(true);
@@ -139,7 +143,7 @@ export default function ChallengesPage() {
         <h2 className="text-xl font-semibold">Unlockable challenges</h2>
         <div className="mt-4 space-y-3">
           {challengeCards.map((challenge) => (
-            <div key={challenge.title} className="rounded-2xl bg-slate-900/60 p-4">
+            <div key={challenge.id} className="rounded-2xl bg-slate-900/60 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{challenge.icon}</span>
@@ -150,14 +154,34 @@ export default function ChallengesPage() {
               <p className="mt-2 text-sm text-slate-400">Snap a photo and submit for review.</p>
               <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
                 <span>{challenge.difficulty}</span>
-                <span>Photo required</span>
+                {submitted.has(challenge.id) ? (
+                  <span className="text-green-400">✓ Submitted</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveChallenge(challenge)}
+                    className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-3 py-1 text-sm font-semibold text-white"
+                  >
+                    Submit photo
+                  </button>
+                )}
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {mounted ? <UploadPanel /> : null}
+      {mounted && activeChallenge ? (
+        <UploadPanel
+          challengeId={activeChallenge.id}
+          barId={activeBar?.name.toLowerCase().replace(/\s+/g, '-') ?? 'north-star'}
+          points={activeChallenge.points}
+          onSubmitted={() => {
+            setSubmitted((prev) => new Set([...prev, activeChallenge.id]));
+            setActiveChallenge(null);
+          }}
+        />
+      ) : null}
 
       {showConfirmModal ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
