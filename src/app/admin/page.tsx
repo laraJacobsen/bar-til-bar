@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
-import { getAllSubmissions, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
-import type { BarDoc, EventDoc, SubmissionDoc } from '@/lib/types';
+import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
+import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
   const [submissions, setSubmissions] = useState<SubmissionDoc[]>([]);
   const [message, setMessage] = useState('');
   const [activeEvent, setActiveEvent] = useState<EventDoc | null>(null);
@@ -46,11 +47,12 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = async () => {
-    const [barsSnap, groupsSnap, allSubs, allEvents] = await Promise.all([
+    const [barsSnap, groupsSnap, allSubs, allEvents, allChallenges] = await Promise.all([
       getDocs(collection(db, 'bars')),
       getDocs(collection(db, 'groups')),
       getAllSubmissions(),
       getEvents(),
+      getChallenges(),
     ]);
 
     let active =
@@ -74,6 +76,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
     setGroups(active ? loadedGroups.filter((g) => g.eventId === active.id || !g.eventId) : []);
 
     setSubmissions(active ? allSubs.filter((s) => s.eventId === active.id || !s.eventId) : []);
+    setChallenges(active ? allChallenges.filter((c) => (c as any).eventId === active.id || !(c as any).eventId) : []);
   };
 
   useEffect(() => {
@@ -594,16 +597,18 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
             <div className="mt-4 space-y-3">
               {pendingSubmissions.map((submission) => {
                 const group = groups.find((g) => g.id === submission.groupId);
+                const challenge = challenges.find((c) => c.id === submission.challengeId);
+                const bar = bars.find((b) => b.id === submission.barId);
                 return (
                   <div key={submission.id} className="rounded-2xl bg-slate-900/70 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-semibold">{group?.name ?? submission.groupName ?? submission.groupId}</p>
-                        <p className="text-sm text-slate-400">
-                          {submission.challengeId} · {submission.barId}
+                        <p className="font-semibold">{group?.name ?? submission.groupName ?? 'Unknown group'}</p>
+                        <p className="text-sm text-slate-300 mt-0.5">
+                          {challenge?.title ?? submission.challengeId}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {new Date(submission.createdAt).toLocaleString()}
+                          {bar?.name ?? submission.barId} · {new Date(submission.createdAt).toLocaleString()}
                         </p>
                       </div>
                       {submission.pointsAwarded ? (

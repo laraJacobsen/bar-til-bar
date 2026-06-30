@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Camera } from 'lucide-react';
+import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, getChallenges } from '@/lib/firestore';
 import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
-import type { BarDoc, ChallengeDoc, EventDoc } from '@/lib/types';
+import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function ChallengesPage() {
   const { user, dbUser } = useAuth();
@@ -15,14 +18,20 @@ export default function ChallengesPage() {
   const [allGroups, setAllGroups] = useState<GroupDoc[]>([]);
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
+  const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
+  const [uploadChallengeId, setUploadChallengeId] = useState<string | null>(null);
+
+  // Fun camera state — no submission, just a preview
+  const funInputRef = useRef<HTMLInputElement>(null);
+  const [funPhotoUrl, setFunPhotoUrl] = useState('');
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      const [activeEvent, group, groupList, allBars, allChallenges] = await Promise.all([
+      const [activeEvent, rawGroup, groupList, allBars, allChallenges] = await Promise.all([
         getActiveEvent(),
         getUserGroup(user.uid),
         getGroups(),
@@ -35,11 +44,25 @@ export default function ChallengesPage() {
       const eventGroups = activeEvent
         ? groupList.filter((g) => g.eventId === activeEvent.id)
         : [];
+      const resolvedGroup =
+        eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
+
       setEvent(activeEvent);
-      setMyGroup(group);
+      setMyGroup(resolvedGroup);
       setAllGroups(eventGroups);
       setBars(eventBars);
       setChallenges(allChallenges.filter((c) => (c as any).eventId === activeEvent?.id));
+
+      // Load which challenges this group already submitted
+      if (resolvedGroup?.id) {
+        const subsSnap = await getDocs(
+          query(collection(db, 'submissions'), where('groupId', '==', resolvedGroup.id)),
+        );
+        setSubmittedIds(
+          new Set(subsSnap.docs.map((d) => (d.data() as SubmissionDoc).challengeId)),
+        );
+      }
+
       setLoading(false);
     };
     load();
@@ -50,7 +73,6 @@ export default function ChallengesPage() {
   const currentBar = bars[barIdx] ?? null;
   const currentChallenges = challenges.filter((c) => c.barId === currentBar?.id);
 
-  // Find which other group is at the same bar this slot
   const meetingGroup = allGroups.find(
     (g) => g.id !== myGroup?.id && (g.barSequence ? g.barSequence[currentSlot] : currentSlot) === barIdx,
   );
@@ -69,6 +91,19 @@ export default function ChallengesPage() {
     }
   };
 
+  const handleFunPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (funPhotoUrl) URL.revokeObjectURL(funPhotoUrl);
+    setFunPhotoUrl(URL.createObjectURL(file));
+  };
+
+  const closeFunPhoto = () => {
+    URL.revokeObjectURL(funPhotoUrl);
+    setFunPhotoUrl('');
+    if (funInputRef.current) funInputRef.current.value = '';
+  };
+
   if (loading) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4">
@@ -79,7 +114,7 @@ export default function ChallengesPage() {
 
   if (!event?.started) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
+      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
@@ -95,7 +130,7 @@ export default function ChallengesPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
@@ -113,37 +148,118 @@ export default function ChallengesPage() {
             <p className="text-lg font-semibold">Meeting <span className="text-pink-300">{meetingGroup.name}</span> here</p>
           </div>
         ) : (
-          <p className="mt-2 text-slate-400 text-sm">Solo stop — no other group assigned here this round.</p>
+          <p className="mt-2 text-slate-400 text-sm">Solo stop — no other group here this round.</p>
         )}
         {currentBar?.address && (
           <p className="mt-1 text-xs text-slate-500">{currentBar.address}</p>
         )}
       </section>
 
-      {/* Challenges for this bar */}
+      {/* Challenges */}
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h2 className="text-xl font-semibold">Challenges</h2>
         {currentChallenges.length === 0 ? (
           <p className="mt-3 text-sm text-slate-400">No challenges for this stop.</p>
         ) : (
           <div className="mt-4 space-y-3">
-            {currentChallenges.map((ch) => (
-              <div key={ch.id} className="rounded-2xl bg-slate-900/60 p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">{ch.title}</h3>
-                  <span className="rounded-full bg-pink-500/20 px-2 py-1 text-sm text-pink-200">+{ch.points} pts</span>
+            {currentChallenges.map((ch) => {
+              const alreadySubmitted = submittedIds.has(ch.id);
+              const isOpen = uploadChallengeId === ch.id;
+              return (
+                <div key={ch.id} className="rounded-2xl bg-slate-900/60 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold">{ch.title}</h3>
+                        <span className="shrink-0 rounded-full bg-pink-500/20 px-2 py-0.5 text-xs text-pink-200">+{ch.points} pts</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-400">{ch.description}</p>
+                      <p className="mt-1 text-xs text-slate-500">{ch.difficulty} · photo required</p>
+                    </div>
+                    {alreadySubmitted ? (
+                      <span className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300">
+                        ✓ Done
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setUploadChallengeId(isOpen ? null : ch.id)}
+                        className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                          isOpen
+                            ? 'border border-white/10 bg-white/10 text-slate-300'
+                            : 'bg-gradient-to-r from-pink-500 to-violet-500 text-white'
+                        }`}
+                      >
+                        {isOpen ? 'Cancel' : 'Submit'}
+                      </button>
+                    )}
+                  </div>
+                  {isOpen && !alreadySubmitted && currentBar && (
+                    <UploadPanel
+                      challengeId={ch.id}
+                      barId={currentBar.id}
+                      pointsAwarded={ch.points}
+                      onSuccess={() => {
+                        setUploadChallengeId(null);
+                        setSubmittedIds((prev) => new Set(Array.from(prev).concat(ch.id)));
+                      }}
+                    />
+                  )}
                 </div>
-                <p className="mt-1 text-sm text-slate-400">{ch.description}</p>
-                <p className="mt-2 text-xs text-slate-500">{ch.difficulty} · photo required</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
 
-      <UploadPanel />
+      {/* Fun camera — no submission, just capture a memory */}
+      <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Just for fun</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Snap a photo — no submission, no points.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => funInputRef.current?.click()}
+            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/20"
+          >
+            <Camera className="h-4 w-4" aria-hidden />
+            Open camera
+          </button>
+        </div>
+        <input
+          ref={funInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFunPhoto}
+          className="hidden"
+        />
+      </section>
 
-      {/* Admin-only: advance all groups to next bar */}
+      {/* Fun photo fullscreen overlay */}
+      {funPhotoUrl && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
+          <div className="flex items-center justify-between px-4 py-4">
+            <p className="text-sm font-semibold text-slate-200">Memory</p>
+            <button
+              type="button"
+              onClick={closeFunPhoto}
+              className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+            >
+              Close
+            </button>
+          </div>
+          <img
+            src={funPhotoUrl}
+            alt="Fun photo"
+            className="flex-1 w-full object-contain"
+          />
+        </div>
+      )}
+
+      {/* Admin-only: advance all groups */}
       {dbUser?.role === 'admin' && (
         <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
           <div className="flex items-center justify-between">
@@ -167,7 +283,7 @@ export default function ChallengesPage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6">
             <h3 className="text-xl font-semibold">Move to next stop?</h3>
-            <p className="mt-2 text-sm text-slate-400">This advances all groups simultaneously. Current submissions will be locked in.</p>
+            <p className="mt-2 text-sm text-slate-400">This advances all groups simultaneously.</p>
             <div className="mt-5 flex gap-3">
               <button onClick={() => setShowConfirmModal(false)} className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold">Cancel</button>
               <button onClick={handleAdvance} disabled={isAdvancing} className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white">

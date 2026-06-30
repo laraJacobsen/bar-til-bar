@@ -72,12 +72,9 @@ export default function ProfilePage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6 pb-24">
 
-      {/* Header */}
       <div>
         <p className="text-xs uppercase tracking-[0.35em] text-pink-200">Profile</p>
-        <h1 className="mt-0.5 text-2xl font-semibold leading-tight">
-          {loading ? '…' : `Hey, ${displayName}`}
-        </h1>
+        <h1 className="mt-0.5 text-2xl font-semibold">{loading ? '…' : `Hey, ${displayName}`}</h1>
       </div>
 
       {/* Avatar + group */}
@@ -88,46 +85,32 @@ export default function ProfilePage() {
           </div>
           <div className="min-w-0">
             <p className="truncate text-lg font-semibold">{displayName}</p>
-            <p className="truncate text-sm text-slate-400">
-              {user?.email ?? ''}
-            </p>
+            <p className="truncate text-sm text-slate-400">{user?.email ?? ''}</p>
             {group && (
               <div className="mt-1 flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2 w-2 rounded-full shrink-0"
-                  style={{ background: group.color ?? '#f43f5e' }}
-                />
+                <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: group.color ?? '#f43f5e' }} />
                 <p className="text-xs text-slate-400">{group.name}</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Stats grid */}
         <div className="mt-5 grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-slate-900/60 p-4">
-            <p className="text-xs text-slate-500 uppercase tracking-wider">Challenges done</p>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {loading ? '—' : approvedSubmissions}
-            </p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">Challenges done</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? '—' : totalSubmissions}</p>
           </div>
           <div className="rounded-2xl bg-slate-900/60 p-4">
-            <p className="text-xs text-slate-500 uppercase tracking-wider">Photos sent</p>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {loading ? '—' : totalSubmissions}
-            </p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">Approved</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? '—' : approvedSubmissions}</p>
           </div>
           <div className="rounded-2xl bg-slate-900/60 p-4">
-            <p className="text-xs text-slate-500 uppercase tracking-wider">Group score</p>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {loading ? '—' : (group?.score ?? 0)}
-            </p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">Group score</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? '—' : (group?.score ?? 0)}</p>
           </div>
           <div className="rounded-2xl bg-slate-900/60 p-4">
-            <p className="text-xs text-slate-500 uppercase tracking-wider">Current stop</p>
-            <p className="mt-2 text-2xl font-bold text-white">
-              {loading ? '—' : group ? `#${(group.currentBarIndex ?? 0) + 1}` : '—'}
-            </p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">Current stop</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? '—' : group ? `#${(group.currentBarIndex ?? 0) + 1}` : '—'}</p>
           </div>
         </div>
       </section>
@@ -156,7 +139,6 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
         <div className="mx-auto flex max-w-5xl px-2 py-2">
           {navItems.map((item) => {
@@ -166,9 +148,7 @@ export default function ProfilePage() {
               <Link
                 key={item.label}
                 href={item.href as any}
-                className={`flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 transition hover:bg-white/10 ${
-                  isActive ? 'text-pink-400' : 'text-slate-300'
-                }`}
+                className={`flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 transition hover:bg-white/10 ${isActive ? 'text-pink-400' : 'text-slate-300'}`}
               >
                 <Icon className="h-5 w-5" aria-hidden />
                 <span className="text-[11px] font-medium">{item.label}</span>
