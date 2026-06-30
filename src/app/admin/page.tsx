@@ -17,7 +17,6 @@ export default function AdminPage() {
 
   // Crawl Wizard state
   const [showWizard, setShowWizard] = useState(false);
-  const [loadEventId, setLoadEventId] = useState('active-event');
   const [crawlName, setCrawlName] = useState('Saturday Night Crawl');
   const [startTime, setStartTime] = useState(() => {
     const nextHour = new Date();
@@ -117,9 +116,9 @@ export default function AdminPage() {
     loadData();
   }, []);
 
-  const loadEvent = async (eventId?: string) => {
+  const loadEvent = async (eventId: string) => {
     try {
-      const id = eventId || loadEventId;
+      const id = eventId;
       if (!id) return setMessage('Provide an event id');
       const evDoc = await import('@/lib/firestore').then((m) => m.getEventById(id));
       if (!evDoc) return setMessage(`Event not found: ${id}`);
@@ -441,10 +440,6 @@ export default function AdminPage() {
               {activeEvent && activeEvent.status === 'active' ? (
                 <button onClick={() => setEndEventConfirm(true)} className="rounded-full border border-white/10 bg-rose-600/10 px-4 py-2 text-sm text-rose-200">End Crawl</button>
               ) : null}
-              <div className="flex w-full items-center gap-2 sm:w-auto">
-                <input value={loadEventId} onChange={(e) => setLoadEventId(e.target.value)} placeholder="event id (active-event)" className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white sm:flex-none" />
-                <button onClick={() => loadEvent()} className="rounded-full border border-white/10 px-3 py-2 text-sm shrink-0">Load</button>
-              </div>
             </div>
           )}
         </div>
