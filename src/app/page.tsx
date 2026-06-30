@@ -8,7 +8,7 @@ import { Home, Target, Images, Trophy, User } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
-import { getUserGroup, type GroupDoc } from '@/lib/group';
+import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { BarDoc, EventDoc } from '@/lib/types';
 
 const navItems = [
@@ -19,17 +19,37 @@ const navItems = [
   { label: 'Profile', href: '/profile', icon: User },
 ] as const;
 
-const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; bars: BarDoc[] } = {
+const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; allGroups: GroupDoc[]; bars: BarDoc[] } = {
   event: null,
   currentGroup: null,
+  allGroups: [],
   bars: [],
 };
+
+function useCountdown(targetMs: number | null): string {
+  const [display, setDisplay] = useState('');
+  useEffect(() => {
+    if (!targetMs) return;
+    const tick = () => {
+      const remaining = Math.max(0, targetMs - Date.now());
+      if (remaining === 0) { setDisplay('Time to move!'); return; }
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      setDisplay(`${m}:${s.toString().padStart(2, '0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [targetMs]);
+  return display;
+}
 
 export default function HomePage() {
   const router = useRouter();
   const { user, dbUser, loading } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(homeCache.event);
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
+  const [allGroups, setAllGroups] = useState<GroupDoc[]>(homeCache.allGroups);
   const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
 
   useEffect(() => {
@@ -41,19 +61,25 @@ export default function HomePage() {
         await seedDemoData();
         localStorage.setItem('bartilbar:seeded', 'true');
       }
-      const [activeEvent, group, allBars] = await Promise.all([
+      const [activeEvent, group, groups, allBars] = await Promise.all([
         getActiveEvent(),
         getUserGroup(user.uid),
+        getGroups(),
         getBars(),
       ]);
       const eventBars = activeEvent
         ? allBars.filter((b) => (b as any).eventId === activeEvent.id).sort((a, b) => a.order - b.order)
         : [];
+      const eventGroups = activeEvent
+        ? groups.filter((g) => g.eventId === activeEvent.id)
+        : [];
       homeCache.event = activeEvent;
       homeCache.currentGroup = group || null;
+      homeCache.allGroups = eventGroups;
       homeCache.bars = eventBars;
       setEvent(activeEvent);
       setCurrentGroup(group || null);
+      setAllGroups(eventGroups);
       setBars(eventBars);
     };
 
@@ -78,9 +104,12 @@ export default function HomePage() {
         setEvent(activeEvent);
 
         if (justStarted) {
-          const group = await getUserGroup(user.uid);
+          const [group, groups] = await Promise.all([getUserGroup(user.uid), getGroups()]);
+          const eventGroups = activeEvent ? groups.filter((g) => g.eventId === activeEvent.id) : [];
           setCurrentGroup(group || null);
+          setAllGroups(eventGroups);
           homeCache.currentGroup = group || null;
+          homeCache.allGroups = eventGroups;
         }
       },
     );
@@ -96,7 +125,17 @@ export default function HomePage() {
   const startMs = event?.startsAt ? new Date(event.startsAt).getTime() : null;
   const endMs = event?.endsAt ? new Date(event.endsAt).getTime() : null;
   const msPerStop = startMs && endMs && orderedBars.length ? (endMs - startMs) / orderedBars.length : null;
+  const slotEndMs = startMs && msPerStop ? startMs + (currentSlot + 1) * msPerStop : null;
   const fmt = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // Which group is this group meeting at each slot
+  const meetingGroupAtSlot = (slot: number) =>
+    allGroups.find(
+      (g) => g.id !== currentGroup?.id &&
+        (g.barSequence?.[slot] ?? slot) === (currentGroup?.barSequence?.[slot] ?? slot),
+    );
+
+  const countdown = useCountdown(event?.started ? slotEndMs : null);
 
   if (loading || !user) {
     return (
@@ -125,7 +164,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* Main card — event, group, progress, CTA */}
+      {/* Main card */}
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow">
 
         {/* Event header */}
@@ -135,9 +174,7 @@ export default function HomePage() {
             <h1 className="text-2xl font-semibold leading-tight mt-0.5">{event?.name || 'Bar Til Bar'}</h1>
           </div>
           <span className={`mt-1 shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
-            event?.started
-              ? 'bg-emerald-500/20 text-emerald-300'
-              : 'bg-white/10 text-slate-400'
+            event?.started ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-slate-400'
           }`}>
             {event?.started ? '● Live' : 'Not started'}
           </span>
@@ -169,29 +206,36 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Stop progress — only when crawl is live */}
+        {/* Current stop info + countdown */}
         {event?.started && orderedBars.length > 0 && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-slate-400">
-                Stop {currentSlot + 1} of {orderedBars.length}
+          <div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3">
+            <div>
+              <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
+              <p className="font-semibold text-white mt-0.5">{currentBar?.name ?? '—'}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Stop {currentSlot + 1} of {orderedBars.length}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-slate-500 uppercase tracking-wider">Time left</p>
+              <p className={`text-xl font-mono font-bold mt-0.5 ${countdown === 'Time to move!' ? 'text-rose-400' : 'text-pink-300'}`}>
+                {countdown}
               </p>
-              {currentBar && (
-                <p className="text-xs font-semibold text-pink-300">{currentBar.name}</p>
-              )}
             </div>
-            <div className="flex gap-1.5">
-              {orderedBars.map((_, idx) => (
-                <div
-                  key={idx}
-                  className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-                    idx < currentSlot ? 'bg-violet-500'
-                    : idx === currentSlot ? 'bg-pink-500'
-                    : 'bg-white/10'
-                  }`}
-                />
-              ))}
-            </div>
+          </div>
+        )}
+
+        {/* Dot progress bar */}
+        {event?.started && orderedBars.length > 0 && (
+          <div className="mt-3 flex gap-1.5">
+            {orderedBars.map((_, idx) => (
+              <div
+                key={idx}
+                className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+                  idx < currentSlot ? 'bg-violet-500'
+                  : idx === currentSlot ? 'bg-pink-500'
+                  : 'bg-white/10'
+                }`}
+              />
+            ))}
           </div>
         )}
 
@@ -215,13 +259,10 @@ export default function HomePage() {
         <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold">Tonight&apos;s flow</h2>
-            <span className="text-sm text-slate-400">
-              {orderedBars.length} stops
-            </span>
+            <span className="text-sm text-slate-400">{orderedBars.length} stops</span>
           </div>
 
           <div className="relative">
-            {/* Track line */}
             <div className="absolute left-[15px] top-2 bottom-2 w-px bg-white/10" />
             <div
               className="absolute left-[15px] top-2 w-px bg-gradient-to-b from-pink-500 to-violet-500 transition-all duration-700"
@@ -233,12 +274,13 @@ export default function HomePage() {
                 const isDone = idx < currentSlot;
                 const isCurrent = idx === currentSlot;
                 const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
+                const meetingGroup = meetingGroupAtSlot(idx);
 
                 return (
                   <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-4 last:pb-0">
                     {/* Dot */}
                     <div className={`relative z-10 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full transition-all ${
-                      isDone     ? 'bg-violet-500/20 border border-violet-500/30'
+                      isDone      ? 'bg-violet-500/20 border border-violet-500/30'
                       : isCurrent ? 'bg-gradient-to-br from-pink-500 to-violet-600 shadow-[0_0_12px_2px_rgba(236,72,153,0.45)]'
                       : 'border border-white/10 bg-slate-900/50'
                     }`}>
@@ -254,31 +296,45 @@ export default function HomePage() {
                     </div>
 
                     {/* Bar info */}
-                    <div className={`flex flex-1 items-center justify-between gap-2 rounded-2xl border px-4 py-3 transition-all ${
+                    <div className={`flex flex-1 flex-col gap-1 rounded-2xl border px-4 py-3 transition-all ${
                       isCurrent ? 'border-pink-500/25 bg-pink-500/10'
                       : isDone  ? 'border-white/5 bg-white/[0.02]'
                       : 'border-white/5 bg-slate-900/30'
                     }`}>
-                      <div>
+                      <div className="flex items-center justify-between gap-2">
                         <p className={`font-semibold leading-snug ${isDone ? 'text-slate-500' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
                           {bar.name}
                         </p>
+                        {isCurrent && (
+                          <span className="shrink-0 rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
+                            Now
+                          </span>
+                        )}
+                        {isDone && (
+                          <svg className="h-4 w-4 shrink-0 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
                         {arrivalMs && (
-                          <p className={`text-xs mt-0.5 ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
+                          <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
                             {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
                           </p>
                         )}
+                        {meetingGroup && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span
+                              className="inline-block h-2 w-2 rounded-full shrink-0"
+                              style={{ background: meetingGroup.color ?? '#f43f5e' }}
+                            />
+                            <p className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-400'}`}>
+                              {meetingGroup.name}
+                            </p>
+                          </div>
+                        )}
                       </div>
-                      {isCurrent && (
-                        <span className="shrink-0 rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
-                          Now
-                        </span>
-                      )}
-                      {isDone && (
-                        <svg className="h-4 w-4 shrink-0 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
                     </div>
                   </li>
                 );
