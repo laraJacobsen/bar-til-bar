@@ -8,6 +8,7 @@ export interface EventDoc {
   startsAt?: string;
   endsAt?: string;
   createdAt: string;
+  joinCode?: string;
 }
 
 // TeamDoc removed; groups are represented by `GroupDoc` in src/lib/group.ts

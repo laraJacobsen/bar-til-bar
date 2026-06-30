@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'create' | 'join' | 'admin'>('create');
   const [groupName, setGroupName] = useState('');
   const [code, setCode] = useState('');
+  const [crawlCode, setCrawlCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [createdGroupCode, setCreatedGroupCode] = useState('');
@@ -33,6 +34,9 @@ export default function LoginPage() {
       if (mode === 'join' && !code.trim()) {
         throw new Error('Please enter the group code.');
       }
+      if (mode !== 'admin' && !crawlCode.trim()) {
+        throw new Error('Please enter the crawl code from your organiser.');
+      }
 
       const role = mode === 'admin' ? 'admin' : 'group';
       const result = await signIn(
@@ -40,7 +44,8 @@ export default function LoginPage() {
         role,
         mode === 'admin' ? undefined : mode,
         mode === 'create' ? groupName.trim() : undefined,
-        mode === 'join' ? code.trim() : undefined
+        mode === 'join' ? code.trim() : undefined,
+        mode !== 'admin' ? crawlCode.trim() : undefined,
       );
 
       if (mode === 'create' && result?.createdGroupCode) {
@@ -77,6 +82,19 @@ export default function LoginPage() {
               className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none"
             />
           </label>
+
+          {mode !== 'admin' && (
+            <label className="block text-sm text-slate-300">
+              Crawl code
+              <input
+                value={crawlCode}
+                onChange={(e) => setCrawlCode(e.target.value)}
+                placeholder="e.g. NIGHT7"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none font-mono tracking-widest uppercase"
+              />
+              <span className="mt-1 block text-xs text-slate-500">Get this from your event organiser.</span>
+            </label>
+          )}
 
           <div className="grid grid-cols-3 gap-1.5 bg-slate-950/60 p-1 rounded-full border border-white/5">
             <button 

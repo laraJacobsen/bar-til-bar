@@ -50,11 +50,16 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
       getEvents(),
     ]);
 
-    const active =
+    let active =
       allEvents
         .filter((e) => e.status === 'active')
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
 
+    if (active && !active.joinCode) {
+      const joinCode = Math.random().toString(36).slice(2, 8).toUpperCase();
+      await setDoc(doc(db, 'events', active.id), { joinCode }, { merge: true });
+      active = { ...active, joinCode };
+    }
     setActiveEvent(active);
 
     const loadedBars = barsSnap.docs
@@ -170,6 +175,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
       const eventId = 'active-event';
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
+      const joinCode = Math.random().toString(36).slice(2, 8).toUpperCase();
       await setDoc(doc(db, 'events', eventId), {
         id: eventId,
         name: crawlName.trim(),
@@ -178,6 +184,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
         startsAt,
         endsAt,
         createdAt: new Date().toISOString(),
+        joinCode,
       });
 
       const challengeTitles = [
@@ -309,6 +316,17 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
             </button>
           )}
         </div>
+
+        {/* Join code */}
+        {activeEvent && !editingTimes && activeEvent.joinCode && (
+          <div className="mt-4 inline-flex items-center gap-3 rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-3">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-violet-300 font-semibold">Crawl code</p>
+              <p className="text-2xl font-mono font-bold tracking-[0.25em] text-white">{activeEvent.joinCode}</p>
+            </div>
+            <p className="text-xs text-slate-400 max-w-[140px]">Share this with participants to link them to this crawl.</p>
+          </div>
+        )}
 
         {/* Stops list */}
         {activeEvent && bars.length > 0 && !editingTimes && (

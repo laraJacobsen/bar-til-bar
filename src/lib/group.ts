@@ -15,7 +15,7 @@ export interface GroupDoc {
   eventId?: string;
 }
 
-export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
+export async function createGroup({ name, ownerId, color, eventId }: { name: string; ownerId: string; color?: string; eventId?: string }) {
   const code = Math.random().toString(36).slice(2, 8).toUpperCase();
   const groupRef = doc(collection(db, 'groups'));
   const group: GroupDoc = {
@@ -28,12 +28,13 @@ export async function createGroup({ name, ownerId, color }: { name: string; owne
     color: color || '#f43f5e',
     currentBarIndex: 0,
     score: 0,
+    ...(eventId ? { eventId } : {}),
   };
   await setDoc(groupRef, group);
   return group;
 }
 
-export async function joinGroup({ code, userId }: { code: string; userId: string }) {
+export async function joinGroup({ code, userId, eventId }: { code: string; userId: string; eventId?: string }) {
   const q = query(collection(db, 'groups'), where('code', '==', code.toUpperCase()));
   const snapshot = await getDocs(q);
   if (snapshot.empty) {
@@ -43,8 +44,9 @@ export async function joinGroup({ code, userId }: { code: string; userId: string
   const groupDoc = snapshot.docs[0];
   const group = groupDoc.data() as GroupDoc;
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
-  await setDoc(doc(db, 'groups', groupDoc.id), { ...group, members }, { merge: true });
-  return { ...group, id: groupDoc.id, members } as GroupDoc;
+  const update = { ...group, members, ...(eventId ? { eventId } : {}) };
+  await setDoc(doc(db, 'groups', groupDoc.id), update, { merge: true });
+  return { ...update, id: groupDoc.id } as GroupDoc;
 }
 
 export async function getUserGroup(userId: string) {

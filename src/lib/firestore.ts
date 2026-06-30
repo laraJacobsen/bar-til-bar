@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -78,6 +78,15 @@ export async function getActiveEvent(): Promise<EventDoc | null> {
     .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }))
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   return activeEvents[0] || null;
+}
+
+export async function getEventByJoinCode(joinCode: string): Promise<EventDoc | null> {
+  const snapshot = await getDocs(
+    query(collection(db, 'events'), where('joinCode', '==', joinCode.toUpperCase()), limit(1)),
+  );
+  if (snapshot.empty) return null;
+  const d = snapshot.docs[0];
+  return { id: d.id, ...(d.data() as Omit<EventDoc, 'id'>) };
 }
 
 export async function getEventById(id: string): Promise<EventDoc | null> {
