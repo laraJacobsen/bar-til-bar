@@ -5,6 +5,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebas
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
 import { createGroup, joinGroup } from '@/lib/group';
+import { getEventByJoinCode } from '@/lib/firestore';
 
 export type DbUser = {
   uid: string;
@@ -18,7 +19,7 @@ type AuthContextValue = {
   user: User | null;
   dbUser: DbUser | null;
   loading: boolean;
-  signIn: (displayName?: string, role?: 'group' | 'admin', mode?: 'create' | 'join', groupName?: string, code?: string) => Promise<{ createdGroupCode?: string } | undefined>;
+  signIn: (displayName?: string, role?: 'group' | 'admin', mode?: 'create' | 'join', groupName?: string, code?: string, crawlCode?: string) => Promise<{ createdGroupCode?: string } | undefined>;
   signOutUser: () => Promise<void>;
 };
 
@@ -62,7 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     role: 'group' | 'admin' = 'group',
     mode?: 'create' | 'join',
     groupName?: string,
-    code?: string
+    code?: string,
+    crawlCode?: string
   ) => {
     const result = await signInWithPopup(auth, googleProvider);
     const nextUser = result.user;
@@ -79,13 +81,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return undefined;
     }
 
+    let eventId: string | undefined;
+    if (crawlCode) {
+      const event = await getEventByJoinCode(crawlCode);
+      if (!event) throw new Error('Invalid crawl code. Check with your organiser.');
+      eventId = event.id;
+    }
+
     if (mode === 'create' && groupName) {
-      const createdGroup = await createGroup({ name: groupName, ownerId: nextUser.uid });
+      const createdGroup = await createGroup({ name: groupName, ownerId: nextUser.uid, eventId });
       return { createdGroupCode: createdGroup.code };
     }
 
     if (mode === 'join' && code) {
-      await joinGroup({ code, userId: nextUser.uid });
+      await joinGroup({ code, userId: nextUser.uid, eventId });
     }
 
     return undefined;

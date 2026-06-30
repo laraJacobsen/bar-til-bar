@@ -5,7 +5,6 @@ service cloud.firestore {
       return request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-
     match /events/{eventId} {
       allow read: if true;
       allow write: if isAdmin();
@@ -35,7 +34,7 @@ service cloud.firestore {
       allow create: if request.auth != null &&
         request.resource.data.userId == request.auth.uid;
       allow update: if isAdmin();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
     match /users/{userId} {
       allow read: if request.auth != null;
