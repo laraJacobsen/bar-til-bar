@@ -393,56 +393,47 @@ export default function AdminPage() {
 
       {message ? <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">{message}</div> : null}
 
-      <section className="rounded-[1rem] border border-white/10 bg-slate-900/30 p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Events</h3>
-          <span className="text-xs text-slate-400">Manage created events</span>
-        </div>
-        <div className="mt-3 space-y-2">
-          {events.length ? events.map((ev) => (
-            <div key={ev.id} className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-semibold">{ev.name}</p>
-                <p className="text-xs text-slate-400">{ev.status} • {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start set'}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={() => loadEvent(ev.id)} className="rounded-full border border-white/10 px-3 py-1 text-sm">Load</button>
-                {ev.status !== 'active' ? (
-                  <button onClick={() => activateEvent(ev.id)} className="rounded-full bg-emerald-600 px-3 py-1 text-sm text-white">Activate</button>
-                ) : (
-                  <button onClick={() => { setActiveEvent(ev); setEndEventConfirm(true); }} className="rounded-full bg-rose-500 px-3 py-1 text-sm text-white">End</button>
-                )}
-                <button onClick={() => setDeleteEventCandidate(ev)} className="rounded-full border border-white/10 px-3 py-1 text-sm text-rose-300">Delete</button>
-              </div>
-            </div>
-          )) : (
-            <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-3 text-sm text-slate-400">No events yet.</div>
-          )}
-        </div>
-      </section>
-
-      {/* Crawl Wizard Trigger & Panel */}
+      {/* Crawls */}
       <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-brand-500/20 to-violet-500/20 p-6 shadow-glow">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-violet-300">Crawl Creator Wizard</h2>
-            <p className="mt-1 text-sm text-slate-400">Instantly create and launch a new bar crawl event with custom groups, start times, and routes.</p>
+            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-violet-300">Crawls</h2>
+            <p className="mt-1 text-sm text-slate-400">Create and manage bar crawl events.</p>
           </div>
           {!showWizard && (
-            <div className="flex w-full flex-wrap gap-3 items-center sm:w-auto">
-              <button
-                onClick={() => setShowWizard(true)}
-                disabled={isInitializing}
-                className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                🚀 Make New Bar Crawl
-              </button>
-              {activeEvent && activeEvent.status === 'active' ? (
-                <button onClick={() => setEndEventConfirm(true)} className="rounded-full border border-white/10 bg-rose-600/10 px-4 py-2 text-sm text-rose-200">End Crawl</button>
-              ) : null}
-            </div>
+            <button
+              onClick={() => setShowWizard(true)}
+              disabled={isInitializing}
+              className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              🚀 Make New Bar Crawl
+            </button>
           )}
         </div>
+
+        {!showWizard && (
+          <div className="mt-4 space-y-2">
+            {events.length ? events.map((ev) => (
+              <div key={ev.id} className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">{ev.name}</p>
+                  <p className="text-xs text-slate-400">{ev.status} • {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start set'}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={() => loadEvent(ev.id)} className="rounded-full border border-white/10 px-3 py-1 text-sm">Edit</button>
+                  {ev.status !== 'active' ? (
+                    <button onClick={() => activateEvent(ev.id)} className="rounded-full bg-emerald-600 px-3 py-1 text-sm text-white">Activate</button>
+                  ) : (
+                    <button onClick={() => { setActiveEvent(ev); setEndEventConfirm(true); }} className="rounded-full bg-rose-500 px-3 py-1 text-sm text-white">End</button>
+                  )}
+                  <button onClick={() => setDeleteEventCandidate(ev)} className="rounded-full border border-white/10 px-3 py-1 text-sm text-rose-300">Delete</button>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-3 text-sm text-slate-400">No crawls yet.</div>
+            )}
+          </div>
+        )}
 
         {showWizard && (
           <div className="mt-6 border-t border-white/10 pt-6 space-y-5 animate-fade-in">
