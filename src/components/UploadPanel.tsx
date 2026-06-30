@@ -12,6 +12,7 @@ export function UploadPanel() {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,10 @@ export function UploadPanel() {
   // matches on), not the user's uid. Resolve the user's group up front.
   useEffect(() => {
     if (user?.uid) {
-      getUserGroup(user.uid).then((group) => setGroupId(group?.id ?? null));
+      getUserGroup(user.uid).then((group) => {
+        setGroupId(group?.id ?? null);
+        setGroupName(group?.name ?? null);
+      });
     } else {
       setGroupId(null);
     }
@@ -65,6 +69,7 @@ export function UploadPanel() {
       await createSubmission({
         userId: user.uid,
         groupId,
+        groupName: groupName ?? undefined,
         barId: 'north-star',
         challengeId,
         photoUrl,

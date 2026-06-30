@@ -516,7 +516,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
                   <div key={submission.id} className="rounded-2xl bg-slate-900/70 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="font-semibold">{group?.name ?? submission.groupId}</p>
+                        <p className="font-semibold">{group?.name ?? submission.groupName ?? submission.groupId}</p>
                         <p className="text-sm text-slate-400">
                           {submission.challengeId} · {submission.barId}
                         </p>
