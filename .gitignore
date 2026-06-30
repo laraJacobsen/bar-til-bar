@@ -5,3 +5,8 @@ out
 .env.local
 npm-debug.log*
 .DS_Store
+
+# Firebase emulator artifacts
+*-debug.log
+firebase-export-*
+.firebase/
