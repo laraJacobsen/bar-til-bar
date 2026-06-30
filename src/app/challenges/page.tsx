@@ -1,183 +1,191 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { UploadPanel } from '@/components/UploadPanel';
-import { advanceAllGroupsToNextBar, buildBarMeetups, getGroups, type GroupDoc } from '@/lib/group';
-
-const challengeCards = [
-  { title: 'Group selfie', points: 50, difficulty: 'easy', icon: '📸' },
-  { title: 'Human pyramid', points: 80, difficulty: 'medium', icon: '🧍' },
-  { title: 'Find someone wearing red', points: 60, difficulty: 'easy', icon: '🔴' },
-];
+import { useAuth } from '@/components/AuthProvider';
+import { getActiveEvent, getBars, getChallenges } from '@/lib/firestore';
+import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
+import type { BarDoc, ChallengeDoc, EventDoc } from '@/lib/types';
 
 export default function ChallengesPage() {
-  const [groups, setGroups] = useState<GroupDoc[]>([]);
-  const [activeBarIndex, setActiveBarIndex] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(15 * 60);
-  const [mounted, setMounted] = useState(false);
+  const { user, dbUser } = useAuth();
+  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [myGroup, setMyGroup] = useState<GroupDoc | null>(null);
+  const [allGroups, setAllGroups] = useState<GroupDoc[]>([]);
+  const [bars, setBars] = useState<BarDoc[]>([]);
+  const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-
-    const loadGroups = async () => {
-      try {
-        const nextGroups = await getGroups();
-        setGroups(nextGroups);
-
-        const sharedBarIndex = nextGroups.find((group) => typeof group.currentBarIndex === 'number')?.currentBarIndex;
-        if (typeof sharedBarIndex === 'number') {
-          setActiveBarIndex(sharedBarIndex);
-        }
-      } catch {
-        setGroups([]);
-      }
+    if (!user) return;
+    const load = async () => {
+      const [activeEvent, group, groupList, allBars, allChallenges] = await Promise.all([
+        getActiveEvent(),
+        getUserGroup(user.uid),
+        getGroups(),
+        getBars(),
+        getChallenges(),
+      ]);
+      const eventBars = activeEvent
+        ? allBars.filter((b) => (b as any).eventId === activeEvent.id).sort((a, b) => a.order - b.order)
+        : [];
+      const eventGroups = activeEvent
+        ? groupList.filter((g) => g.eventId === activeEvent.id)
+        : [];
+      setEvent(activeEvent);
+      setMyGroup(group);
+      setAllGroups(eventGroups);
+      setBars(eventBars);
+      setChallenges(allChallenges.filter((c) => (c as any).eventId === activeEvent?.id));
+      setLoading(false);
     };
+    load();
+  }, [user]);
 
-    loadGroups();
-  }, []);
+  const currentSlot = myGroup?.currentBarIndex ?? 0;
+  const barIdx = myGroup?.barSequence ? (myGroup.barSequence[currentSlot] ?? currentSlot) : currentSlot;
+  const currentBar = bars[barIdx] ?? null;
+  const currentChallenges = challenges.filter((c) => c.barId === currentBar?.id);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          setActiveBarIndex((current) => (current + 1) % 4);
-          return 15 * 60;
-        }
+  // Find which other group is at the same bar this slot
+  const meetingGroup = allGroups.find(
+    (g) => g.id !== myGroup?.id && (g.barSequence ? g.barSequence[currentSlot] : currentSlot) === barIdx,
+  );
 
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const bars = useMemo(() => buildBarMeetups(groups.map((group) => group.name), ['North Star', 'Velvet Room', 'Neon Tunnel', 'Golden Hour']), [groups]);
-  const activeBar = bars[activeBarIndex] || bars[0];
-
-  const handleAdvanceToNextBar = async () => {
+  const handleAdvance = async () => {
+    if (!myGroup) return;
     setIsAdvancing(true);
     try {
-      const nextIndex = await advanceAllGroupsToNextBar(groups.map((group) => group.id), activeBarIndex);
-      setActiveBarIndex(nextIndex);
-      setTimeLeft(15 * 60);
-      setGroups((currentGroups) => currentGroups.map((group) => ({ ...group, currentBarIndex: nextIndex })));
+      const groupIds = allGroups.map((g) => g.id);
+      await advanceAllGroupsToNextBar(groupIds, currentSlot);
+      setMyGroup((prev) => prev ? { ...prev, currentBarIndex: (currentSlot + 1) % bars.length } : prev);
+      setAllGroups((prev) => prev.map((g) => ({ ...g, currentBarIndex: (currentSlot + 1) % bars.length })));
     } finally {
       setIsAdvancing(false);
       setShowConfirmModal(false);
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const secs = (seconds % 60).toString().padStart(2, '0');
-    return `${mins}:${secs}`;
-  };
+  if (loading) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4">
+        <p className="text-slate-400 text-sm">Loading…</p>
+      </main>
+    );
+  }
+
+  // Crawl not started yet
+  if (!event?.started) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-4 px-4 pb-24 text-slate-100">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/5 p-8 text-center">
+          <p className="text-4xl mb-4">⏳</p>
+          <h1 className="text-xl font-semibold">Waiting for the crawl to start</h1>
+          <p className="mt-2 text-sm text-slate-400">
+            {event
+              ? 'The organiser hasn\'t started the crawl yet. Hang tight!'
+              : 'No active crawl found. Check with your organiser.'}
+          </p>
+          {myGroup && (
+            <div className="mt-5 rounded-2xl border border-white/10 bg-slate-900/60 p-3">
+              <p className="text-xs text-slate-500 uppercase tracking-wider">Your group</p>
+              <p className="mt-1 font-semibold">{myGroup.name}</p>
+            </div>
+          )}
+          <Link href="/" className="mt-5 block rounded-full border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5 transition">
+            Back to home
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current meetup</p>
-          <h1 className="text-2xl font-semibold">{activeBar?.name}</h1>
+          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
+          <h1 className="text-2xl font-semibold">{currentBar?.name ?? '—'}</h1>
         </div>
-        <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-100">Back</Link>
+        <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">Back</Link>
       </div>
 
-      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/20 via-slate-900 to-violet-500/20 p-5 shadow-[0_0_60px_rgba(236,72,153,0.15)]">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-pink-100">Next bar swap</p>
-            <h2 className="text-2xl font-semibold">{formatTime(timeLeft)}</h2>
+      {/* Meeting info */}
+      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-slate-900 to-violet-500/20 p-5">
+        <p className="text-sm text-pink-200 font-medium">Stop {currentSlot + 1} of {bars.length}</p>
+        {meetingGroup ? (
+          <div className="mt-2 flex items-center gap-3">
+            <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: meetingGroup.color ?? '#f43f5e' }} />
+            <p className="text-lg font-semibold">Meeting <span className="text-pink-300">{meetingGroup.name}</span> here</p>
           </div>
-          <div className="rounded-full border border-pink-400/20 bg-pink-500/15 px-3 py-2 text-sm text-pink-100">
-            {activeBar?.groups.join(' vs ')}
-          </div>
-        </div>
-        <div className="mt-4 h-2 rounded-full bg-white/10">
-          <div
-            className="h-2 rounded-full bg-gradient-to-r from-pink-500 to-violet-500"
-            style={{ width: `${(timeLeft / (15 * 60)) * 100}%` }}
-          />
-        </div>
+        ) : (
+          <p className="mt-2 text-slate-400 text-sm">Solo stop — no other group assigned here this round.</p>
+        )}
+        {currentBar?.address && (
+          <p className="mt-1 text-xs text-slate-500">{currentBar.address}</p>
+        )}
       </section>
 
+      {/* Challenges for this bar */}
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">4-bar route</h2>
-          <button
-            type="button"
-            onClick={() => setShowConfirmModal(true)}
-            disabled={isAdvancing}
-            className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white"
-          >
-            {isAdvancing ? 'Moving…' : 'Next bar'}
-          </button>
-        </div>
-        <p className="mt-2 text-sm text-slate-400">Advance the whole crawl to the next stop and lock in the current submissions.</p>
-        <div className="mt-4 space-y-3">
-          {bars.map((bar, index) => (
-            <div
-              key={bar.name}
-              className={`rounded-2xl border p-4 ${index === activeBarIndex ? 'border-pink-400/40 bg-pink-500/10' : 'border-white/10 bg-slate-900/60'}`}
+        <h2 className="text-xl font-semibold">Challenges</h2>
+        {currentChallenges.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-400">No challenges for this stop.</p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {currentChallenges.map((ch) => (
+              <div key={ch.id} className="rounded-2xl bg-slate-900/60 p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">{ch.title}</h3>
+                  <span className="rounded-full bg-pink-500/20 px-2 py-1 text-sm text-pink-200">+{ch.points} pts</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-400">{ch.description}</p>
+                <p className="mt-2 text-xs text-slate-500">{ch.difficulty} · photo required</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <UploadPanel />
+
+      {/* Admin-only: advance all groups to next bar */}
+      {dbUser?.role === 'admin' && (
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Admin: advance crawl</h2>
+              <p className="text-sm text-slate-400 mt-1">Move all groups to the next stop.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowConfirmModal(true)}
+              disabled={isAdvancing || currentSlot >= bars.length - 1}
+              className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400">Bar {index + 1}</p>
-                  <h3 className="font-semibold">{bar.name}</h3>
-                </div>
-                <span className="rounded-full bg-white/10 px-2 py-1 text-sm text-slate-200">{bar.groups.join(' + ')}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+              {isAdvancing ? 'Moving…' : 'Next stop →'}
+            </button>
+          </div>
+        </section>
+      )}
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-        <h2 className="text-xl font-semibold">Unlockable challenges</h2>
-        <div className="mt-4 space-y-3">
-          {challengeCards.map((challenge) => (
-            <div key={challenge.title} className="rounded-2xl bg-slate-900/60 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">{challenge.icon}</span>
-                  <h3 className="font-semibold">{challenge.title}</h3>
-                </div>
-                <span className="rounded-full bg-brand-500/20 px-2 py-1 text-sm text-pink-100">+{challenge.points} pts</span>
-              </div>
-              <p className="mt-2 text-sm text-slate-400">Snap a photo and submit for review.</p>
-              <div className="mt-3 flex items-center justify-between text-sm text-slate-400">
-                <span>{challenge.difficulty}</span>
-                <span>Photo required</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {mounted ? <UploadPanel /> : null}
-
-      {showConfirmModal ? (
+      {showConfirmModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6 shadow-2xl">
-            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Confirm bar change</p>
-            <h3 className="mt-3 text-2xl font-semibold">All photos will be submitted for this bar</h3>
-            <p className="mt-3 text-sm text-slate-400">
-              Once you move on, the current bar submissions will be locked in and you won&apos;t be able to redo them. Are you sure you want to continue to the next bar?
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button type="button" onClick={() => setShowConfirmModal(false)} className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-slate-100">
-                Cancel
-              </button>
-              <button type="button" onClick={handleAdvanceToNextBar} disabled={isAdvancing} className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white">
+          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6">
+            <h3 className="text-xl font-semibold">Move to next stop?</h3>
+            <p className="mt-2 text-sm text-slate-400">This advances all groups simultaneously. Current submissions will be locked in.</p>
+            <div className="mt-5 flex gap-3">
+              <button onClick={() => setShowConfirmModal(false)} className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold">Cancel</button>
+              <button onClick={handleAdvance} disabled={isAdvancing} className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white">
                 {isAdvancing ? 'Moving…' : 'Yes, continue'}
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </main>
   );
 }
