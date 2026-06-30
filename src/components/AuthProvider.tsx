@@ -69,13 +69,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const result = await signInWithPopup(auth, googleProvider);
     const nextUser = result.user;
 
-    await setDoc(doc(db, 'users', nextUser.uid), {
+    const userData: Record<string, unknown> = {
       uid: nextUser.uid,
       email: nextUser.email,
       displayName: displayName || nextUser.displayName || 'Traveler',
-      role: role,
       updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    };
+    if (role === 'admin') userData.role = 'admin';
+    await setDoc(doc(db, 'users', nextUser.uid), userData, { merge: true });
 
     if (role === 'admin') {
       return undefined;

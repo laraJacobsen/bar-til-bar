@@ -13,6 +13,63 @@ export interface GroupDoc {
   score?: number;
   pictureUrl?: string;
   eventId?: string;
+  barSequence?: number[];
+}
+
+// Standard circle-method round-robin: fix group 0, rotate the rest.
+// Returns one barSequence per group — barSequence[slot] = bar index for that time slot.
+function generateGroupBarSequences(numGroups: number, numBars: number): number[][] {
+  if (numGroups === 0 || numBars === 0) return [];
+  if (numGroups === 1) return [Array.from({ length: numBars }, (_, i) => i)];
+
+  const N = numGroups % 2 === 0 ? numGroups : numGroups + 1; // pad to even for clean pairing
+  const sequences: number[][] = Array.from({ length: numGroups }, () => []);
+  let circle = Array.from({ length: N - 1 }, (_, i) => i + 1);
+  const numRounds = Math.min(N - 1, numBars);
+
+  for (let round = 0; round < numRounds; round++) {
+    const half = Math.floor((N - 2) / 2);
+    const top = [0, ...circle.slice(0, half)];
+    const bottom = [...circle.slice(half)].reverse();
+
+    for (let i = 0; i < N / 2; i++) {
+      const g0 = top[i];
+      const g1 = bottom[i];
+      const bar = (round * Math.floor(N / 2) + i) % numBars;
+      if (g0 < numGroups) sequences[g0].push(bar);
+      if (g1 < numGroups) sequences[g1].push(bar);
+    }
+    circle = [circle[circle.length - 1], ...circle.slice(0, -1)];
+  }
+
+  // Pad remaining slots with unvisited bars, then wrap if needed
+  for (let g = 0; g < numGroups; g++) {
+    const used = new Set(sequences[g]);
+    for (let b = 0; b < numBars && sequences[g].length < numBars; b++) {
+      if (!used.has(b)) { sequences[g].push(b); used.add(b); }
+    }
+    while (sequences[g].length < numBars) sequences[g].push(sequences[g][sequences[g].length % numGroups] ?? 0);
+  }
+
+  return sequences;
+}
+
+export async function recalculateSchedule(eventId: string): Promise<void> {
+  const [groupsSnap, barsSnap] = await Promise.all([
+    getDocs(query(collection(db, 'groups'), where('eventId', '==', eventId))),
+    getDocs(query(collection(db, 'bars'), where('eventId', '==', eventId))),
+  ]);
+
+  const groups = groupsSnap.docs.map((d) => ({ ...(d.data() as GroupDoc), id: d.id }));
+  const numBars = barsSnap.size;
+  if (groups.length === 0 || numBars === 0) return;
+
+  const sequences = generateGroupBarSequences(groups.length, numBars);
+  const batch = writeBatch(db);
+  groups.forEach((group, i) => {
+    batch.update(doc(db, 'groups', group.id), { barSequence: sequences[i] });
+  });
+  await batch.commit();
 }
 
 export async function createGroup({ name, ownerId, color, eventId }: { name: string; ownerId: string; color?: string; eventId?: string }) {
@@ -31,6 +88,7 @@ export async function createGroup({ name, ownerId, color, eventId }: { name: str
     ...(eventId ? { eventId } : {}),
   };
   await setDoc(groupRef, group);
+  if (eventId) await recalculateSchedule(eventId);
   return group;
 }
 
@@ -46,6 +104,8 @@ export async function joinGroup({ code, userId, eventId }: { code: string; userI
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
   const update = { ...group, members, ...(eventId ? { eventId } : {}) };
   await setDoc(doc(db, 'groups', groupDoc.id), update, { merge: true });
+  const resolvedEventId = eventId ?? group.eventId;
+  if (resolvedEventId) await recalculateSchedule(resolvedEventId);
   return { ...update, id: groupDoc.id } as GroupDoc;
 }
 
