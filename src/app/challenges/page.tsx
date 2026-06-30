@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { Camera } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
 import { useAuth } from '@/components/AuthProvider';
@@ -12,6 +13,7 @@ import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } fro
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function ChallengesPage() {
+  const router = useRouter();
   const { user, dbUser } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(null);
   const [myGroup, setMyGroup] = useState<GroupDoc | null>(null);
@@ -27,6 +29,21 @@ export default function ChallengesPage() {
   // Fun camera state — no submission, just a preview
   const funInputRef = useRef<HTMLInputElement>(null);
   const [funPhotoUrl, setFunPhotoUrl] = useState('');
+
+  // Real-time: redirect when admin ends the crawl
+  const lastEventIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'events'), where('status', '==', 'active')),
+      (snapshot) => {
+        const ev = snapshot.docs[0];
+        if (ev) { lastEventIdRef.current = ev.id; return; }
+        if (lastEventIdRef.current) router.push(`/summary?id=${lastEventIdRef.current}`);
+      },
+    );
+    return () => unsub();
+  }, [user, router]);
 
   useEffect(() => {
     if (!user) return;

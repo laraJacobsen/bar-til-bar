@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
-import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
+import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
@@ -114,12 +114,13 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
   const endAndDeleteCrawl = async () => {
     if (!activeEvent) return;
     try {
-      await deleteEventFull(activeEvent.id);
+      // Archive permanently first, then mark event ended
+      await archiveCrawl(activeEvent.id, activeEvent.name);
       setActiveEvent(null);
       setGroups([]);
       setBars([]);
       setSubmissions([]);
-      setMessage('Crawl ended and deleted.');
+      setMessage('Crawl ended! Results saved permanently to all participants\' profiles.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
     } finally {
@@ -724,10 +725,9 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setEndConfirm(false)} />
           <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">End &amp; delete crawl?</h3>
+            <h3 className="text-lg font-semibold">End crawl?</h3>
             <p className="mt-2 text-sm text-slate-400">
-              This permanently deletes <strong>{activeEvent.name}</strong>, all its bars, challenges,
-              submissions, and groups. Cannot be undone.
+              This will save <strong>{activeEvent.name}</strong> permanently to all participants&apos; profiles and redirect everyone to the summary screen.
             </p>
             <div className="mt-4 flex justify-end gap-3">
               <button
@@ -740,7 +740,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
                 onClick={endAndDeleteCrawl}
                 className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 transition"
               >
-                End &amp; Delete
+                End &amp; Save Results
               </button>
             </div>
           </div>

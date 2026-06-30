@@ -33,8 +33,8 @@ function useSchedule(
   startMs: number | null,
   endMs: number | null,
   numSlots: number,
-): { slot: number; countdown: string; isWarning: boolean } {
-  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false });
+): { slot: number; countdown: string; isWarning: boolean; isCrawlOver: boolean } {
+  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false, isCrawlOver: false });
 
   useEffect(() => {
     if (!startMs || !endMs || numSlots === 0) return;
@@ -45,14 +45,17 @@ function useSchedule(
       const now = Date.now();
       const slot = Math.min(Math.max(0, Math.floor((now - startMs) / msPerSlot)), numSlots - 1);
       const remaining = Math.max(0, startMs + (slot + 1) * msPerSlot - now);
-      const isWarning = remaining <= WARNING_MS;
+      const isLastSlot = slot === numSlots - 1;
+      const isCrawlOver = isLastSlot && remaining === 0;
+      const isWarning = remaining <= WARNING_MS && !isCrawlOver;
       const m = Math.floor(remaining / 60000);
       const s = Math.floor((remaining % 60000) / 1000);
       const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
       setState({
         slot,
-        countdown: remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
+        countdown: isCrawlOver ? "That's a wrap!" : remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
         isWarning,
+        isCrawlOver,
       });
     };
 
@@ -111,8 +114,9 @@ export default function HomePage() {
     load();
   }, [loading, router, user]);
 
-  // Real-time: pushes event.started to all clients the moment admin hits Start
+  // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
+  const lastEventIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(
@@ -122,6 +126,13 @@ export default function HomePage() {
           snapshot.docs
             .map((d) => ({ id: d.id, ...(d.data() as Omit<EventDoc, 'id'>) }))
             .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
+
+        // Admin ended the crawl — event left the 'active' query → redirect to summary
+        if (!activeEvent && lastEventIdRef.current !== null) {
+          router.push(`/summary?id=${lastEventIdRef.current}`);
+          return;
+        }
+        if (activeEvent) lastEventIdRef.current = activeEvent.id;
 
         const justStarted = !wasStartedRef.current && !!activeEvent?.started;
         wasStartedRef.current = !!activeEvent?.started;
@@ -141,7 +152,7 @@ export default function HomePage() {
       },
     );
     return () => unsub();
-  }, [user]);
+  }, [user, router]);
 
   // Derived route values
   const orderedBars = currentGroup?.barSequence
@@ -154,7 +165,7 @@ export default function HomePage() {
 
   // Time-based schedule: slot advances automatically when the slot boundary
   // passes — no Firestore write required. isWarning fires at 10 min remaining.
-  const { slot: liveSlot, countdown, isWarning } = useSchedule(
+  const { slot: liveSlot, countdown, isWarning, isCrawlOver } = useSchedule(
     event?.started ? startMs : null,
     event?.started ? endMs : null,
     orderedBars.length,
@@ -274,7 +285,14 @@ export default function HomePage() {
         )}
 
         {/* CTA */}
-        {event?.started ? (
+        {isCrawlOver ? (
+          <Link
+            href={"/summary" as any}
+            className="mt-4 flex w-full items-center justify-center rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 font-semibold text-white transition hover:opacity-90"
+          >
+            View Final Results →
+          </Link>
+        ) : event?.started ? (
           <Link
             href="/challenges"
             className="mt-4 flex w-full items-center justify-center rounded-full bg-white px-4 py-3 font-semibold text-slate-900 hover:bg-slate-100 transition"
