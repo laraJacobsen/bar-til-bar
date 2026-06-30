@@ -17,12 +17,21 @@ const navItems = [
   { label: 'Profile', href: '/profile', icon: User },
 ] as const;
 
+// In-memory cache that survives client-side navigation between tabs. Module state
+// persists for the app's lifetime, so returning to Home seeds the initial render
+// with the last-known values (no flash) while the data revalidates in the background.
+const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; groups: GroupDoc[] } = {
+  event: null,
+  currentGroup: null,
+  groups: [],
+};
+
 export default function HomePage() {
   const router = useRouter();
   const { user, dbUser, loading } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
-  const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(null);
-  const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [event, setEvent] = useState<EventDoc | null>(homeCache.event);
+  const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
+  const [groups, setGroups] = useState<GroupDoc[]>(homeCache.groups);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -47,6 +56,9 @@ export default function HomePage() {
         user?.uid ? getUserGroup(user.uid) : Promise.resolve(null),
         getGroups(),
       ]);
+      homeCache.event = activeEvent;
+      homeCache.currentGroup = group || null;
+      homeCache.groups = allGroups;
       setEvent(activeEvent);
       setCurrentGroup(group || null);
       setGroups(allGroups);
@@ -58,7 +70,7 @@ export default function HomePage() {
   if (loading || !user) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
-        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center backdrop-blur-xl">
+        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center">
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Bar Til Bar</p>
           <h1 className="mt-2 text-2xl font-semibold">Redirecting to login…</h1>
         </div>
@@ -69,7 +81,7 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">
       {dbUser?.role === 'admin' && (
-        <section className="flex items-center justify-between gap-4 rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4 shadow-glow-sm backdrop-blur-xl animate-fade-in">
+        <section className="flex items-center justify-between gap-4 rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4 shadow-glow-sm animate-fade-in">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-pink-300 font-bold">Admin Privileges Active</p>
             <p className="mt-1 text-sm text-pink-100">You are logged in as administrator.</p>
@@ -80,7 +92,7 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Live event</p>
@@ -108,7 +120,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/30 to-accent/30 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/30 to-accent/30 p-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-pink-100">Route progress</p>
@@ -127,7 +139,7 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Your crew</h3>
           <span className="text-sm text-slate-400">{groups.length} groups</span>
@@ -163,7 +175,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
         <ul className="mt-4 space-y-3">
           {['Arrive at North Star', 'Complete the group selfie challenge', 'Unlock the next route'].map((item) => (
@@ -175,7 +187,7 @@ export default function HomePage() {
         </ul>
       </section>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl">
+      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
         <div className="mx-auto flex max-w-5xl px-2 py-2">
           {navItems.map((item) => {
             const Icon = item.icon;

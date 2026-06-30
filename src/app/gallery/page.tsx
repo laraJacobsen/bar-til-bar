@@ -13,7 +13,7 @@ export default function GalleryPage() {
 
       <section className="grid gap-3 sm:grid-cols-2">
         {[1, 2, 3].map((item) => (
-          <div key={item} className="rounded-[2rem] border border-white/10 bg-white/10 p-4 backdrop-blur-xl">
+          <div key={item} className="rounded-[2rem] border border-white/10 bg-white/10 p-4">
             <div className="h-36 rounded-2xl bg-gradient-to-br from-pink-500/40 to-violet-500/40" />
             <div className="mt-3 flex items-center justify-between">
               <div>

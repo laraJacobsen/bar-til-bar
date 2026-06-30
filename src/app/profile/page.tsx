@@ -28,7 +28,7 @@ export default function ProfilePage() {
         <Link href="/" className="shrink-0 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-100">Back</Link>
       </div>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xl font-semibold">A</div>
           <div>
@@ -51,7 +51,7 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Account</h2>
         <div className="mt-4 flex flex-col gap-3">
           {dbUser?.role === 'admin' ? (

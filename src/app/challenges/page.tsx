@@ -86,7 +86,7 @@ export default function ChallengesPage() {
         <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-100">Back</Link>
       </div>
 
-      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/20 via-slate-900 to-violet-500/20 p-5 shadow-[0_0_60px_rgba(236,72,153,0.15)] backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/20 via-slate-900 to-violet-500/20 p-5 shadow-[0_0_60px_rgba(236,72,153,0.15)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm text-pink-100">Next bar swap</p>
@@ -104,7 +104,7 @@ export default function ChallengesPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">4-bar route</h2>
           <button
@@ -135,7 +135,7 @@ export default function ChallengesPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h2 className="text-xl font-semibold">Unlockable challenges</h2>
         <div className="mt-4 space-y-3">
           {challengeCards.map((challenge) => (

@@ -64,7 +64,7 @@ export default function GroupPage() {
   if (loading || !user || !group) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
-        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center backdrop-blur-xl">
+        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center">
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Loading…</p>
         </div>
       </main>
@@ -77,7 +77,7 @@ export default function GroupPage() {
         ← Back to home
       </Link>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Your group</p>
@@ -118,7 +118,7 @@ export default function GroupPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h3 className="text-lg font-semibold">Group members</h3>
         <div className="mt-4 space-y-3">
           {group.members.map((memberId) => (
@@ -129,7 +129,7 @@ export default function GroupPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h3 className="text-lg font-semibold">Group code</h3>
         <div className="mt-4 rounded-2xl bg-slate-900/70 p-4">
           <p className="text-sm text-slate-400">Share this code with friends to join your group:</p>

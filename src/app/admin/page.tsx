@@ -423,7 +423,7 @@ export default function AdminPage() {
       </section>
 
       {/* Crawl Wizard Trigger & Panel */}
-      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-brand-500/20 to-violet-500/20 p-6 shadow-glow backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-brand-500/20 to-violet-500/20 p-6 shadow-glow">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-violet-300">Crawl Creator Wizard</h2>
@@ -562,7 +562,7 @@ export default function AdminPage() {
         )}
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h2 className="text-xl font-semibold">Challenges (by bar)</h2>
         <p className="mt-2 text-sm text-slate-400">View and remove challenges assigned to each bar.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
