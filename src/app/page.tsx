@@ -183,76 +183,98 @@ export default function HomePage() {
         </div>
       </section>
 
-      {bars.length > 0 && (
-        <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-          <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
-          <p className="mt-1 text-sm text-slate-400">Your group&apos;s bar route for the night.</p>
-          <div className="mt-5 relative">
-            {/* Vertical track */}
-            <div className="absolute left-[18px] top-0 bottom-0 w-0.5 bg-white/10" />
-            {/* Filled progress line */}
-            {currentGroup && (currentGroup.currentBarIndex ?? 0) > 0 && (
-              <div
-                className="absolute left-[18px] top-0 w-0.5 bg-gradient-to-b from-pink-500 to-violet-500 transition-all duration-700"
-                style={{
-                  height: `${Math.min(((currentGroup.currentBarIndex ?? 0) / bars.length) * 100, 100)}%`,
-                }}
-              />
+      {bars.length > 0 && (() => {
+        const startMs = event?.startsAt ? new Date(event.startsAt).getTime() : null;
+        const endMs = event?.endsAt ? new Date(event.endsAt).getTime() : null;
+        const msPerStop = startMs && endMs ? (endMs - startMs) / bars.length : null;
+        const fmt = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        // Use the group's personal bar sequence if available, otherwise fall back to order
+        const seq = currentGroup?.barSequence;
+        const orderedBars = seq ? seq.map((barIdx) => bars[barIdx]).filter(Boolean) : bars;
+        const currentSlot = currentGroup?.currentBarIndex ?? 0;
+
+        return (
+          <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
+              <span className="text-sm text-slate-400">
+                Stop {Math.min(currentSlot + 1, orderedBars.length)}/{orderedBars.length}
+              </span>
+            </div>
+
+            {!event?.started ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-slate-900/40 p-4 text-center">
+                <p className="text-sm text-slate-400">Waiting for the organiser to start the crawl…</p>
+                <p className="mt-1 text-xs text-slate-600">Your route will appear here once it begins.</p>
+              </div>
+            ) : (
+              <div className="mt-5 relative">
+                <div className="absolute left-[15px] top-2 bottom-2 w-px bg-white/10" />
+                <div
+                  className="absolute left-[15px] top-2 w-px bg-gradient-to-b from-pink-500 to-violet-500 transition-all duration-700"
+                  style={{ height: `${(currentSlot / Math.max(orderedBars.length - 1, 1)) * 90}%` }}
+                />
+
+                <ol className="space-y-0">
+                  {orderedBars.map((bar, idx) => {
+                    const isDone = idx < currentSlot;
+                    const isCurrent = idx === currentSlot;
+                    const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
+
+                    return (
+                      <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-5 last:pb-0">
+                        <div className={`relative z-10 flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full transition-all ${
+                          isDone ? 'bg-violet-500/20 border border-violet-500/30'
+                          : isCurrent ? 'bg-gradient-to-br from-pink-500 to-violet-600 shadow-[0_0_12px_2px_rgba(236,72,153,0.45)]'
+                          : 'border border-white/10 bg-slate-900/50'
+                        }`}>
+                          {isDone ? (
+                            <svg className="h-3.5 w-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : isCurrent ? (
+                            <div className="h-2 w-2 rounded-full bg-white" />
+                          ) : (
+                            <span className="text-[11px] font-semibold text-slate-600">{idx + 1}</span>
+                          )}
+                        </div>
+
+                        <div className={`flex flex-1 items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-all ${
+                          isCurrent ? 'border-pink-500/25 bg-pink-500/10'
+                          : isDone ? 'border-white/5 bg-white/[0.02]'
+                          : 'border-white/5 bg-slate-900/30'
+                        }`}>
+                          <div>
+                            <p className={`font-semibold leading-snug ${isDone ? 'text-slate-500' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
+                              {bar.name}
+                            </p>
+                            {arrivalMs && (
+                              <p className={`text-xs mt-0.5 ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
+                                {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
+                              </p>
+                            )}
+                          </div>
+                          {isCurrent && (
+                            <span className="shrink-0 rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
+                              Now
+                            </span>
+                          )}
+                          {isDone && (
+                            <svg className="h-4 w-4 shrink-0 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
             )}
-            <ol className="space-y-0">
-              {bars.map((bar, idx) => {
-                const currentIdx = currentGroup?.currentBarIndex ?? 0;
-                const isDone = idx < currentIdx;
-                const isCurrent = idx === currentIdx;
-                const isUpcoming = idx > currentIdx;
-                return (
-                  <li key={bar.id} className="relative flex items-start gap-4 pb-6 last:pb-0">
-                    {/* Node */}
-                    <div className={`relative z-10 mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
-                      isDone
-                        ? 'border-violet-500 bg-violet-500'
-                        : isCurrent
-                        ? 'border-pink-500 bg-pink-500 shadow-[0_0_12px_2px_rgba(236,72,153,0.5)]'
-                        : 'border-white/15 bg-slate-900/60'
-                    }`}>
-                      {isDone ? (
-                        <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <span className={`text-xs font-bold ${isCurrent ? 'text-white' : 'text-slate-500'}`}>{idx + 1}</span>
-                      )}
-                    </div>
-                    {/* Content */}
-                    <div className={`flex-1 rounded-2xl border p-3 transition-all ${
-                      isCurrent
-                        ? 'border-pink-500/30 bg-pink-500/10'
-                        : isDone
-                        ? 'border-violet-500/20 bg-violet-500/5'
-                        : 'border-white/5 bg-slate-900/40'
-                    }`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className={`font-semibold ${isUpcoming ? 'text-slate-400' : 'text-white'}`}>{bar.name}</p>
-                        {isCurrent && (
-                          <span className="rounded-full bg-pink-500/20 px-2 py-0.5 text-xs font-semibold text-pink-300 animate-pulse">
-                            Now
-                          </span>
-                        )}
-                        {isDone && (
-                          <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-xs text-violet-300">Done</span>
-                        )}
-                      </div>
-                      {bar.address && (
-                        <p className={`mt-0.5 text-xs ${isUpcoming ? 'text-slate-600' : 'text-slate-400'}`}>{bar.address}</p>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </section>
-      )}
+          </section>
+        );
+      })()}
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
         <div className="mx-auto flex max-w-5xl px-2 py-2">

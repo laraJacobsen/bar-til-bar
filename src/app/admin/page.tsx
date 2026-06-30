@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { type GroupDoc } from '@/lib/group';
+import { type GroupDoc, recalculateSchedule } from '@/lib/group';
 import { getAllSubmissions, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
 import type { BarDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -122,6 +122,18 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
       setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
     } finally {
       setEndConfirm(false);
+    }
+  };
+
+  const startCrawl = async () => {
+    if (!activeEvent) return;
+    try {
+      await recalculateSchedule(activeEvent.id);
+      await setDoc(doc(db, 'events', activeEvent.id), { started: true }, { merge: true });
+      await loadData();
+      setMessage('Crawl started! Groups are on their way.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to start crawl');
     }
   };
 
@@ -298,12 +310,21 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
               >
                 Edit
               </button>
-              <button
-                onClick={() => setEndConfirm(true)}
-                className="rounded-full bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition"
-              >
-                End Crawl
-              </button>
+              {!activeEvent.started ? (
+                <button
+                  onClick={startCrawl}
+                  className="rounded-full bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition"
+                >
+                  ▶ Start Crawl
+                </button>
+              ) : (
+                <button
+                  onClick={() => setEndConfirm(true)}
+                  className="rounded-full bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition"
+                >
+                  End Crawl
+                </button>
+              )}
             </div>
           )}
 
@@ -316,6 +337,30 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
             </button>
           )}
         </div>
+
+        {/* Waiting room — groups that have joined, shown before crawl starts */}
+        {activeEvent && !activeEvent.started && !editingTimes && (
+          <div className="mt-5 border-t border-white/10 pt-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-slate-300">Groups joined ({groups.length})</p>
+              <button onClick={loadData} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
+            </div>
+            {groups.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No groups yet. Share the crawl code below.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {groups.map((g) => (
+                  <div key={g.id} className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 pl-2 pr-3 py-1.5">
+                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: g.color ?? '#f43f5e' }} />
+                    <span className="text-sm font-medium">{g.name}</span>
+                    <span className="text-xs text-slate-500">{g.members.length}p</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-500">Press <strong className="text-slate-300">▶ Start Crawl</strong> when everyone is in. This locks the route schedule.</p>
+          </div>
+        )}
 
         {/* Join code */}
         {activeEvent && !editingTimes && activeEvent.joinCode && (
