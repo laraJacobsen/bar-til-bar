@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Home, Target, Images, Trophy, User } from 'lucide-react';
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
@@ -74,6 +76,34 @@ export default function HomePage() {
 
     load();
   }, [loading, router, user]);
+
+  // Real-time listener: when the admin starts the crawl, all clients update instantly
+  const wasStartedRef = useRef(false);
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      query(collection(db, 'events'), where('status', '==', 'active')),
+      async (snapshot) => {
+        const activeEvent = snapshot.docs
+          .map((d) => ({ id: d.id, ...(d.data() as Omit<EventDoc, 'id'>) }))
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
+
+        const justStarted = !wasStartedRef.current && !!activeEvent?.started;
+        wasStartedRef.current = !!activeEvent?.started;
+        homeCache.event = activeEvent;
+        setEvent(activeEvent);
+
+        if (justStarted) {
+          const [group, allGroups] = await Promise.all([getUserGroup(user.uid), getGroups()]);
+          setCurrentGroup(group || null);
+          setGroups(allGroups);
+          homeCache.currentGroup = group || null;
+          homeCache.groups = allGroups;
+        }
+      },
+    );
+    return () => unsub();
+  }, [user]);
 
   if (loading || !user) {
     return (
