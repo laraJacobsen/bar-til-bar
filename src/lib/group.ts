@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export interface GroupDoc {
@@ -12,6 +12,7 @@ export interface GroupDoc {
   currentBarIndex?: number;
   score?: number;
   pictureUrl?: string;
+  eventId?: string;
 }
 
 export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {
@@ -129,6 +130,10 @@ export function buildBarMeetups(groupNames: string[], barNames: string[]) {
 
 export async function updateGroupScore(groupId: string, newScore: number) {
   await setDoc(doc(db, 'groups', groupId), { score: newScore }, { merge: true });
+}
+
+export async function adjustGroupScore(groupId: string, delta: number): Promise<void> {
+  await updateDoc(doc(db, 'groups', groupId), { score: increment(delta) });
 }
 
 export async function updateGroupPicture(groupId: string, pictureUrl: string) {

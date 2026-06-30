@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { createGroup, getGroups, type GroupDoc } from '@/lib/group';
-import { getAllSubmissions, getActiveEvent, getEventById, getEvents } from '@/lib/firestore';
+import { getAllSubmissions, getActiveEvent, getEventById, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
@@ -19,7 +19,6 @@ export default function AdminPage() {
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
   const [submissions, setSubmissions] = useState<SubmissionDoc[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   // Crawl Wizard state
@@ -60,8 +59,9 @@ export default function AdminPage() {
     setActiveEvent(active);
     setEvents(allEvents);
     setBars(active ? loadedBars.filter((b) => ((b as any).eventId === active.id)) : loadedBars);
-    setGroups(groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) })));
-    setSubmissions(allSubs);
+    const loadedGroups = groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) }));
+    setGroups(active ? loadedGroups.filter((g) => g.eventId === active.id || !g.eventId) : loadedGroups);
+    setSubmissions(active ? allSubs.filter((s) => s.eventId === active.id || !s.eventId) : allSubs);
     const loadedChallenges = challengesSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
     setChallenges(active ? loadedChallenges.filter((c) => ((c as any).eventId === active.id)) : loadedChallenges);
   };
@@ -267,6 +267,7 @@ export default function AdminPage() {
           color: ['#f43f5e', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'][i % 6],
           currentBarIndex: 0,
           score: 0,
+          eventId: eventId,
         });
       }
 
@@ -393,9 +394,25 @@ export default function AdminPage() {
     }
   };
 
-  const allGroupsHaveSubmissions = groups.length > 0 && groups.every((group) => submissions.some((submission) => submission.groupId === group.id));
-  const selectedGroup = selectedGroupId ? groups.find((group) => group.id === selectedGroupId) || null : null;
-  const selectedGroupSubmissions = selectedGroup ? submissions.filter((submission) => submission.groupId === selectedGroup.id) : [];
+  const handleApprove = async (submissionId: string) => {
+    try {
+      await approveSubmission(submissionId);
+      setSubmissions((prev) => prev.map((s) => s.id === submissionId ? { ...s, status: 'approved' as const } : s));
+      setMessage('Submission approved.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to approve submission');
+    }
+  };
+
+  const handleReject = async (submission: (typeof submissions)[number]) => {
+    try {
+      await rejectSubmission(submission.id, submission.groupId, submission.pointsAwarded ?? 0);
+      setSubmissions((prev) => prev.map((s) => s.id === submission.id ? { ...s, status: 'rejected' as const } : s));
+      setMessage(`Submission rejected.${submission.pointsAwarded ? ` −${submission.pointsAwarded} pts deducted.` : ''}`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to reject submission');
+    }
+  };
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
@@ -668,55 +685,71 @@ export default function AdminPage() {
             );
           })}
         </div>
-        <h2 className="text-xl font-semibold">Approval queue</h2>
-        <p className="mt-2 text-sm text-slate-400">Approval pages appear once every group has at least one submission.</p>
-        {!allGroupsHaveSubmissions ? (
+        <h2 className="mt-6 text-xl font-semibold">Approval queue</h2>
+        <p className="mt-2 text-sm text-slate-400">Points are awarded on submission and deducted on rejection.</p>
+        {submissions.filter((s) => s.status === 'pending').length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
-            Waiting for all groups to submit their first challenge before approval pages appear.
+            No pending submissions yet.
           </div>
         ) : (
           <div className="mt-4 space-y-3">
-            {groups.map((group) => (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => setSelectedGroupId(group.id)}
-                className="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-4 text-left text-sm text-slate-100 transition hover:border-pink-400/40 hover:bg-slate-900"
-              >
-                <div className="flex items-center justify-between">
-                  <span>{group.name}</span>
-                  <span className="text-slate-400">{submissions.filter((submission) => submission.groupId === group.id).length} submissions</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {selectedGroup ? (
-          <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-slate-900/70 p-5 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold">{selectedGroup.name}</h3>
-                <p className="text-sm text-slate-400">Review approved submissions</p>
-              </div>
-              <button type="button" onClick={() => setSelectedGroupId(null)} className="text-sm text-pink-200 hover:text-white">Close</button>
-            </div>
-            <div className="mt-4 space-y-3">
-              {selectedGroupSubmissions.length ? selectedGroupSubmissions.map((submission) => (
-                <div key={submission.id} className="rounded-2xl bg-slate-950/80 p-4">
+            {submissions.filter((s) => s.status === 'pending').map((submission) => {
+              const group = groups.find((g) => g.id === submission.groupId);
+              return (
+                <div key={submission.id} className="rounded-2xl bg-slate-900/70 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm text-slate-400">{submission.challengeId}</p>
-                      <p className="mt-1 text-base font-semibold">Bar: {submission.barId}</p>
+                      <p className="font-semibold">{group?.name ?? submission.groupId}</p>
+                      <p className="text-sm text-slate-400">{submission.challengeId} · {submission.barId}</p>
+                      <p className="text-xs text-slate-500">{new Date(submission.createdAt).toLocaleString()}</p>
                     </div>
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs text-emerald-200">{submission.status}</span>
+                    {submission.pointsAwarded ? (
+                      <span className="rounded-full bg-yellow-500/15 px-2 py-1 text-xs text-yellow-200">+{submission.pointsAwarded} pts</span>
+                    ) : null}
                   </div>
-                  <p className="mt-3 text-sm text-slate-400">Submitted {new Date(submission.createdAt).toLocaleString()}</p>
-                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-40 w-full rounded-2xl object-cover" /> : null}
+                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-48 w-full rounded-2xl object-cover" /> : null}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(submission.id)}
+                      className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReject(submission)}
+                      className="flex-1 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 transition"
+                    >
+                      Reject{submission.pointsAwarded ? ` (−${submission.pointsAwarded} pts)` : ''}
+                    </button>
+                  </div>
                 </div>
-              )) : (
-                <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">No submissions yet for this group.</div>
-              )}
+              );
+            })}
+          </div>
+        )}
+        {submissions.filter((s) => s.status !== 'pending').length > 0 ? (
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Reviewed</h3>
+            <div className="mt-3 space-y-2">
+              {submissions.filter((s) => s.status !== 'pending').map((submission) => {
+                const group = groups.find((g) => g.id === submission.groupId);
+                return (
+                  <div key={submission.id} className="rounded-2xl bg-slate-900/60 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{group?.name ?? submission.groupId}</p>
+                        <p className="text-sm text-slate-400">{submission.challengeId}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-xs ${submission.status === 'approved' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-rose-500/15 text-rose-200'}`}>
+                        {submission.status}
+                      </span>
+                    </div>
+                    {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-24 w-full rounded-2xl object-cover" /> : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : null}

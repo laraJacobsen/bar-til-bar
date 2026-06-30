@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, increment, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -97,12 +97,31 @@ export async function getChallenges(): Promise<ChallengeDoc[]> {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
 }
 
-export async function createSubmission(input: { userId: string; groupId: string; barId: string; challengeId: string; photoUrl: string }) {
+export async function getChallengeById(challengeId: string): Promise<ChallengeDoc | null> {
+  const snap = await getDoc(doc(db, 'challenges', challengeId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as Omit<ChallengeDoc, 'id'>) };
+}
+
+export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string; pointsAwarded?: number; eventId?: string }) {
   return addDoc(collection(db, 'submissions'), {
     ...input,
     status: 'pending',
     createdAt: new Date().toISOString(),
   });
+}
+
+export async function approveSubmission(submissionId: string): Promise<void> {
+  await updateDoc(doc(db, 'submissions', submissionId), { status: 'approved' });
+}
+
+export async function rejectSubmission(submissionId: string, groupId: string, pointsAwarded: number): Promise<void> {
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'submissions', submissionId), { status: 'rejected' });
+  if (pointsAwarded > 0) {
+    batch.update(doc(db, 'groups', groupId), { score: increment(-pointsAwarded) });
+  }
+  await batch.commit();
 }
 
 export async function getAllSubmissions(): Promise<SubmissionDoc[]> {

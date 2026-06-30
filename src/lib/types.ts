@@ -36,7 +36,7 @@ export interface ChallengeDoc {
 
 export interface SubmissionDoc {
   id: string;
-  userId: string;
+  userId?: string;
   groupId: string;
   barId: string;
   challengeId: string;
@@ -44,4 +44,6 @@ export interface SubmissionDoc {
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   comment?: string;
+  pointsAwarded?: number;
+  eventId?: string;
 }

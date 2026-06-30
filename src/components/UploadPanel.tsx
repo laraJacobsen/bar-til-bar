@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { uploadToR2 } from '@/lib/upload';
-import { createSubmission } from '@/lib/firestore';
-import { getUserGroup } from '@/lib/group';
+import { createSubmission, getChallengeById, getActiveEvent } from '@/lib/firestore';
+import { getUserGroup, adjustGroupScore } from '@/lib/group';
 import { useAuth } from '@/components/AuthProvider';
 
 type Status = { type: 'success' | 'error'; message: string } | null;
@@ -50,6 +50,12 @@ export function UploadPanel() {
 
     try {
       const challengeId = 'group-selfie';
+      const [challenge, activeEvent] = await Promise.all([
+        getChallengeById(challengeId),
+        getActiveEvent(),
+      ]);
+      const pointsAwarded = challenge?.points ?? 50;
+
       const photoUrl = await uploadToR2(file, {
         kind: 'submission',
         groupId,
@@ -57,15 +63,18 @@ export function UploadPanel() {
       });
 
       await createSubmission({
-        userId: user.uid,
         groupId,
         barId: 'north-star',
         challengeId,
         photoUrl,
+        pointsAwarded,
+        eventId: activeEvent?.id,
       });
 
+      await adjustGroupScore(groupId, pointsAwarded);
+
       clearSelection();
-      setStatus({ type: 'success', message: 'Photo submitted! An admin will review it shortly.' });
+      setStatus({ type: 'success', message: `Photo submitted! +${pointsAwarded} pts added to your group.` });
     } catch (error) {
       console.error('Error uploading submission:', error);
       setStatus({ type: 'error', message: 'Upload failed. Please check your connection and try again.' });
