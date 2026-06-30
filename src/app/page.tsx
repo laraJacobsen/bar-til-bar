@@ -26,22 +26,42 @@ const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; allGro
   bars: [],
 };
 
-function useCountdown(targetMs: number | null): string {
-  const [display, setDisplay] = useState('');
+// Derives the current slot and countdown from the event schedule — no Firestore
+// write needed. Slot advances automatically when time crosses the boundary.
+// Shows a "Move!" warning for the last 10 minutes of each stop.
+function useSchedule(
+  startMs: number | null,
+  endMs: number | null,
+  numSlots: number,
+): { slot: number; countdown: string; isWarning: boolean } {
+  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false });
+
   useEffect(() => {
-    if (!targetMs) return;
+    if (!startMs || !endMs || numSlots === 0) return;
+    const msPerSlot = (endMs - startMs) / numSlots;
+    const WARNING_MS = 10 * 60 * 1000;
+
     const tick = () => {
-      const remaining = Math.max(0, targetMs - Date.now());
-      if (remaining === 0) { setDisplay('Time to move!'); return; }
+      const now = Date.now();
+      const slot = Math.min(Math.max(0, Math.floor((now - startMs) / msPerSlot)), numSlots - 1);
+      const remaining = Math.max(0, startMs + (slot + 1) * msPerSlot - now);
+      const isWarning = remaining <= WARNING_MS;
       const m = Math.floor(remaining / 60000);
       const s = Math.floor((remaining % 60000) / 1000);
-      setDisplay(`${m}:${s.toString().padStart(2, '0')}`);
+      const timeStr = `${m}:${s.toString().padStart(2, '0')}`;
+      setState({
+        slot,
+        countdown: remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
+        isWarning,
+      });
     };
+
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [targetMs]);
-  return display;
+  }, [startMs, endMs, numSlots]);
+
+  return state;
 }
 
 export default function HomePage() {
@@ -127,13 +147,20 @@ export default function HomePage() {
   const orderedBars = currentGroup?.barSequence
     ? currentGroup.barSequence.map((i) => bars[i]).filter(Boolean)
     : bars;
-  const currentSlot = currentGroup?.currentBarIndex ?? 0;
-  const currentBar = orderedBars[currentSlot] ?? null;
   const startMs = event?.startsAt ? new Date(event.startsAt).getTime() : null;
   const endMs = event?.endsAt ? new Date(event.endsAt).getTime() : null;
   const msPerStop = startMs && endMs && orderedBars.length ? (endMs - startMs) / orderedBars.length : null;
-  const slotEndMs = startMs && msPerStop ? startMs + (currentSlot + 1) * msPerStop : null;
   const fmt = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // Time-based schedule: slot advances automatically when the slot boundary
+  // passes — no Firestore write required. isWarning fires at 10 min remaining.
+  const { slot: liveSlot, countdown, isWarning } = useSchedule(
+    event?.started ? startMs : null,
+    event?.started ? endMs : null,
+    orderedBars.length,
+  );
+  const currentSlot = event?.started ? liveSlot : (currentGroup?.currentBarIndex ?? 0);
+  const currentBar = orderedBars[currentSlot] ?? null;
 
   // All groups meeting this group at a given slot
   const meetingGroupsAtSlot = (slot: number) => {
@@ -143,8 +170,6 @@ export default function HomePage() {
       (g) => g.id !== currentGroup?.id && g.barSequence?.[slot] === myBar,
     );
   };
-
-  const countdown = useCountdown(event?.started ? slotEndMs : null);
 
   if (loading || !user) {
     return (
@@ -225,7 +250,7 @@ export default function HomePage() {
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Time left</p>
-              <p className={`text-xl font-mono font-bold mt-0.5 ${countdown === 'Time to move!' ? 'text-rose-400' : 'text-pink-300'}`}>
+              <p className={`text-xl font-mono font-bold mt-0.5 ${isWarning ? 'text-rose-400 animate-pulse' : 'text-pink-300'}`}>
                 {countdown}
               </p>
             </div>
