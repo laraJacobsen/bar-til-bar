@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Home, Target, Images, Trophy, User } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
-import { getActiveEvent, seedDemoData } from '@/lib/firestore';
+import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
-import type { EventDoc } from '@/lib/types';
+import type { BarDoc, EventDoc } from '@/lib/types';
 
 const navItems = [
   { label: 'Home', href: '/', icon: Home },
@@ -20,10 +20,11 @@ const navItems = [
 // In-memory cache that survives client-side navigation between tabs. Module state
 // persists for the app's lifetime, so returning to Home seeds the initial render
 // with the last-known values (no flash) while the data revalidates in the background.
-const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; groups: GroupDoc[] } = {
+const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; groups: GroupDoc[]; bars: BarDoc[] } = {
   event: null,
   currentGroup: null,
   groups: [],
+  bars: [],
 };
 
 export default function HomePage() {
@@ -32,6 +33,7 @@ export default function HomePage() {
   const [event, setEvent] = useState<EventDoc | null>(homeCache.event);
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
   const [groups, setGroups] = useState<GroupDoc[]>(homeCache.groups);
+  const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -51,17 +53,23 @@ export default function HomePage() {
       }
 
       // These reads are independent — run them in parallel rather than as a waterfall.
-      const [activeEvent, group, allGroups] = await Promise.all([
+      const [activeEvent, group, allGroups, allBars] = await Promise.all([
         getActiveEvent(),
         user?.uid ? getUserGroup(user.uid) : Promise.resolve(null),
         getGroups(),
+        getBars(),
       ]);
+      const eventBars = activeEvent
+        ? allBars.filter((b) => (b as any).eventId === activeEvent.id).sort((a, b) => a.order - b.order)
+        : [];
       homeCache.event = activeEvent;
       homeCache.currentGroup = group || null;
       homeCache.groups = allGroups;
+      homeCache.bars = eventBars;
       setEvent(activeEvent);
       setCurrentGroup(group || null);
       setGroups(allGroups);
+      setBars(eventBars);
     };
 
     load();
@@ -107,7 +115,7 @@ export default function HomePage() {
           </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current score</p>
-            <p className="mt-2 text-3xl font-semibold">840</p>
+            <p className="mt-2 text-3xl font-semibold">{currentGroup?.score ?? 0}</p>
           </div>
           <div className="rounded-2xl bg-slate-900/70 p-4">
             <p className="text-sm text-slate-400">Current challenge</p>
@@ -175,17 +183,76 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-        <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
-        <ul className="mt-4 space-y-3">
-          {['Arrive at North Star', 'Complete the group selfie challenge', 'Unlock the next route'].map((item) => (
-            <li key={item} className="flex items-center gap-3 rounded-2xl bg-slate-900/60 p-3">
-              <div className="h-2.5 w-2.5 rounded-full bg-brand-500" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {bars.length > 0 && (
+        <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
+          <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
+          <p className="mt-1 text-sm text-slate-400">Your group&apos;s bar route for the night.</p>
+          <div className="mt-5 relative">
+            {/* Vertical track */}
+            <div className="absolute left-[18px] top-0 bottom-0 w-0.5 bg-white/10" />
+            {/* Filled progress line */}
+            {currentGroup && (currentGroup.currentBarIndex ?? 0) > 0 && (
+              <div
+                className="absolute left-[18px] top-0 w-0.5 bg-gradient-to-b from-pink-500 to-violet-500 transition-all duration-700"
+                style={{
+                  height: `${Math.min(((currentGroup.currentBarIndex ?? 0) / bars.length) * 100, 100)}%`,
+                }}
+              />
+            )}
+            <ol className="space-y-0">
+              {bars.map((bar, idx) => {
+                const currentIdx = currentGroup?.currentBarIndex ?? 0;
+                const isDone = idx < currentIdx;
+                const isCurrent = idx === currentIdx;
+                const isUpcoming = idx > currentIdx;
+                return (
+                  <li key={bar.id} className="relative flex items-start gap-4 pb-6 last:pb-0">
+                    {/* Node */}
+                    <div className={`relative z-10 mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                      isDone
+                        ? 'border-violet-500 bg-violet-500'
+                        : isCurrent
+                        ? 'border-pink-500 bg-pink-500 shadow-[0_0_12px_2px_rgba(236,72,153,0.5)]'
+                        : 'border-white/15 bg-slate-900/60'
+                    }`}>
+                      {isDone ? (
+                        <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span className={`text-xs font-bold ${isCurrent ? 'text-white' : 'text-slate-500'}`}>{idx + 1}</span>
+                      )}
+                    </div>
+                    {/* Content */}
+                    <div className={`flex-1 rounded-2xl border p-3 transition-all ${
+                      isCurrent
+                        ? 'border-pink-500/30 bg-pink-500/10'
+                        : isDone
+                        ? 'border-violet-500/20 bg-violet-500/5'
+                        : 'border-white/5 bg-slate-900/40'
+                    }`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={`font-semibold ${isUpcoming ? 'text-slate-400' : 'text-white'}`}>{bar.name}</p>
+                        {isCurrent && (
+                          <span className="rounded-full bg-pink-500/20 px-2 py-0.5 text-xs font-semibold text-pink-300 animate-pulse">
+                            Now
+                          </span>
+                        )}
+                        {isDone && (
+                          <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-xs text-violet-300">Done</span>
+                        )}
+                      </div>
+                      {bar.address && (
+                        <p className={`mt-0.5 text-xs ${isUpcoming ? 'text-slate-600' : 'text-slate-400'}`}>{bar.address}</p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
+      )}
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
         <div className="mx-auto flex max-w-5xl px-2 py-2">
