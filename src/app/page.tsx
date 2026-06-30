@@ -73,12 +73,17 @@ export default function HomePage() {
       const eventGroups = activeEvent
         ? groups.filter((g) => g.eventId === activeEvent.id)
         : [];
+      // Prefer a group that's actually in the event (has barSequence assigned).
+      // getUserGroup returns the first group the user belongs to regardless of eventId,
+      // so if they have a stale group from a previous session we'd get that instead.
+      const resolvedGroup =
+        eventGroups.find((g) => g.members?.includes(user.uid)) || group || null;
       homeCache.event = activeEvent;
-      homeCache.currentGroup = group || null;
+      homeCache.currentGroup = resolvedGroup;
       homeCache.allGroups = eventGroups;
       homeCache.bars = eventBars;
       setEvent(activeEvent);
-      setCurrentGroup(group || null);
+      setCurrentGroup(resolvedGroup);
       setAllGroups(eventGroups);
       setBars(eventBars);
     };
@@ -106,9 +111,11 @@ export default function HomePage() {
         if (justStarted) {
           const [group, groups] = await Promise.all([getUserGroup(user.uid), getGroups()]);
           const eventGroups = activeEvent ? groups.filter((g) => g.eventId === activeEvent.id) : [];
-          setCurrentGroup(group || null);
+          const resolvedGroup =
+            eventGroups.find((g) => g.members?.includes(user.uid)) || group || null;
+          setCurrentGroup(resolvedGroup);
           setAllGroups(eventGroups);
-          homeCache.currentGroup = group || null;
+          homeCache.currentGroup = resolvedGroup;
           homeCache.allGroups = eventGroups;
         }
       },
@@ -128,12 +135,14 @@ export default function HomePage() {
   const slotEndMs = startMs && msPerStop ? startMs + (currentSlot + 1) * msPerStop : null;
   const fmt = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  // Which group is this group meeting at each slot
-  const meetingGroupAtSlot = (slot: number) =>
-    allGroups.find(
-      (g) => g.id !== currentGroup?.id &&
-        (g.barSequence?.[slot] ?? slot) === (currentGroup?.barSequence?.[slot] ?? slot),
+  // All groups meeting this group at a given slot
+  const meetingGroupsAtSlot = (slot: number) => {
+    const myBar = currentGroup?.barSequence?.[slot];
+    if (myBar == null) return [];
+    return allGroups.filter(
+      (g) => g.id !== currentGroup?.id && g.barSequence?.[slot] === myBar,
     );
+  };
 
   const countdown = useCountdown(event?.started ? slotEndMs : null);
 
@@ -274,7 +283,7 @@ export default function HomePage() {
                 const isDone = idx < currentSlot;
                 const isCurrent = idx === currentSlot;
                 const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
-                const meetingGroup = meetingGroupAtSlot(idx);
+                const meetingGroups = meetingGroupsAtSlot(idx);
 
                 return (
                   <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-4 last:pb-0">
@@ -323,15 +332,19 @@ export default function HomePage() {
                             {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
                           </p>
                         )}
-                        {meetingGroup && (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span
-                              className="inline-block h-2 w-2 rounded-full shrink-0"
-                              style={{ background: meetingGroup.color ?? '#f43f5e' }}
-                            />
-                            <p className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-400'}`}>
-                              {meetingGroup.name}
-                            </p>
+                        {meetingGroups.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 shrink-0">
+                            {meetingGroups.map((g) => (
+                              <div key={g.id} className="flex items-center gap-1">
+                                <span
+                                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                                  style={{ background: g.color ?? '#f43f5e' }}
+                                />
+                                <p className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-400'}`}>
+                                  {g.name}
+                                </p>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
