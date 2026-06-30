@@ -63,6 +63,7 @@ export function UploadPanel() {
       });
 
       await createSubmission({
+        userId: user.uid,
         groupId,
         barId: 'north-star',
         challengeId,
