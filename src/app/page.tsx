@@ -3,25 +3,35 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Home, Target, Images, Trophy, User } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { EventDoc } from '@/lib/types';
 
 const navItems = [
-  { label: 'Home', href: '/' },
-  { label: 'Challenges', href: '/challenges' },
-  { label: 'Gallery', href: '/gallery' },
-  { label: 'Leaderboard', href: '/leaderboard' },
-  { label: 'Profile', href: '/profile' },
+  { label: 'Home', href: '/', icon: Home },
+  { label: 'Challenges', href: '/challenges', icon: Target },
+  { label: 'Gallery', href: '/gallery', icon: Images },
+  { label: 'Leaderboard', href: '/leaderboard', icon: Trophy },
+  { label: 'Profile', href: '/profile', icon: User },
 ] as const;
+
+// In-memory cache that survives client-side navigation between tabs. Module state
+// persists for the app's lifetime, so returning to Home seeds the initial render
+// with the last-known values (no flash) while the data revalidates in the background.
+const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; groups: GroupDoc[] } = {
+  event: null,
+  currentGroup: null,
+  groups: [],
+};
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, dbUser, loading, signOutUser } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
-  const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(null);
-  const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const { user, dbUser, loading } = useAuth();
+  const [event, setEvent] = useState<EventDoc | null>(homeCache.event);
+  const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
+  const [groups, setGroups] = useState<GroupDoc[]>(homeCache.groups);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -34,16 +44,23 @@ export default function HomePage() {
     }
 
     const load = async () => {
-      await seedDemoData();
-      const activeEvent = await getActiveEvent();
-      setEvent(activeEvent);
-
-      if (user?.uid) {
-        const group = await getUserGroup(user.uid);
-        setCurrentGroup(group || null);
+      // Seed once per browser instead of reading the whole `events` collection on every load.
+      if (!localStorage.getItem('bartilbar:seeded')) {
+        await seedDemoData();
+        localStorage.setItem('bartilbar:seeded', 'true');
       }
 
-      const allGroups = await getGroups();
+      // These reads are independent — run them in parallel rather than as a waterfall.
+      const [activeEvent, group, allGroups] = await Promise.all([
+        getActiveEvent(),
+        user?.uid ? getUserGroup(user.uid) : Promise.resolve(null),
+        getGroups(),
+      ]);
+      homeCache.event = activeEvent;
+      homeCache.currentGroup = group || null;
+      homeCache.groups = allGroups;
+      setEvent(activeEvent);
+      setCurrentGroup(group || null);
       setGroups(allGroups);
     };
 
@@ -53,7 +70,7 @@ export default function HomePage() {
   if (loading || !user) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
-        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center backdrop-blur-xl">
+        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center">
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Bar Til Bar</p>
           <h1 className="mt-2 text-2xl font-semibold">Redirecting to login…</h1>
         </div>
@@ -64,7 +81,7 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-6 pb-24">
       {dbUser?.role === 'admin' && (
-        <section className="flex items-center justify-between gap-4 rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4 shadow-glow-sm backdrop-blur-xl animate-fade-in">
+        <section className="flex items-center justify-between gap-4 rounded-3xl border border-pink-500/30 bg-pink-500/10 p-4 shadow-glow-sm animate-fade-in">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-pink-300 font-bold">Admin Privileges Active</p>
             <p className="mt-1 text-sm text-pink-100">You are logged in as administrator.</p>
@@ -75,7 +92,7 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 shadow-glow">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Live event</p>
@@ -103,7 +120,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/30 to-accent/30 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/30 to-accent/30 p-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-pink-100">Route progress</p>
@@ -122,7 +139,7 @@ export default function HomePage() {
         </Link>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Your crew</h3>
           <span className="text-sm text-slate-400">{groups.length} groups</span>
@@ -158,7 +175,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h3 className="text-lg font-semibold">Tonight&apos;s flow</h3>
         <ul className="mt-4 space-y-3">
           {['Arrive at North Star', 'Complete the group selfie challenge', 'Unlock the next route'].map((item) => (
@@ -170,31 +187,21 @@ export default function HomePage() {
         </ul>
       </section>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl justify-between px-4 py-3">
-          {[
-            ...navItems,
-            ...(dbUser?.role === 'admin' ? [{ label: 'Admin', href: '/admin' }] : []),
-          ].map((item) => (
-            <Link key={item.label} href={item.href as any} className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10">
-              {item.label}
-            </Link>
-          ))}
-          {user ? (
-            <button
-              onClick={async () => {
-                try {
-                  await signOutUser();
-                } catch (e) {
-                  console.error('Sign out failed', e);
-                }
-                router.replace('/login');
-              }}
-              className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10"
-            >
-              Log out
-            </button>
-          ) : null}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
+        <div className="mx-auto flex max-w-5xl px-2 py-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.label}
+                href={item.href as any}
+                className="flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-slate-300 transition hover:bg-white/10"
+              >
+                <Icon className="h-5 w-5" aria-hidden />
+                <span className="text-[11px] font-medium">{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </main>

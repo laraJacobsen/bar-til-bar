@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, increment, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -15,6 +15,7 @@ export async function seedDemoData() {
     description: 'A demo event for testing the app end to end.',
     status: 'active',
     createdAt: new Date().toISOString(),
+    startsAt: new Date().toISOString(),
     endsAt: new Date(Date.now() + 1000 * 60 * 60 * 6).toISOString(),
   });
 
@@ -69,15 +70,20 @@ export async function seedDemoData() {
 }
 
 export async function getActiveEvent(): Promise<EventDoc | null> {
-  const snapshot = await getDocs(collection(db, 'events'));
-  const events = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
-  return events.find((event) => event.status === 'active') || events[0] || null;
+  // Fetch only active events (equality filter uses Firestore's automatic single-field
+  // index — no composite index needed), then prefer the most recently created so a
+  // stray active event can never shadow the current crawl.
+  const snapshot = await getDocs(query(collection(db, 'events'), where('status', '==', 'active')));
+  const activeEvents = snapshot.docs
+    .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return activeEvents[0] || null;
 }
 
 export async function getEventById(id: string): Promise<EventDoc | null> {
-  const snapshot = await getDocs(collection(db, 'events'));
-  const events = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
-  return events.find((e) => e.id === id) || null;
+  const snap = await getDoc(doc(db, 'events', id));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as Omit<EventDoc, 'id'>) };
 }
 
 export async function getEvents(): Promise<EventDoc[]> {

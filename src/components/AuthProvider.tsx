@@ -34,23 +34,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const unsubscribeAuth = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
+      // The auth state is now known — render immediately instead of blocking the
+      // whole app on the extra user-document read. `dbUser` (role) fills in async;
+      // all consumers read it null-safely (`dbUser?.role`).
+      setLoading(false);
       if (nextUser) {
         // Listen to changes in the user's Firestore document
         const userRef = doc(db, 'users', nextUser.uid);
         unsubscribeDbUser = onSnapshot(userRef, (snapshot) => {
-          if (snapshot.exists()) {
-            setDbUser(snapshot.data() as DbUser);
-          } else {
-            setDbUser(null);
-          }
-          setLoading(false);
+          setDbUser(snapshot.exists() ? (snapshot.data() as DbUser) : null);
         }, (error) => {
           console.error("Error listening to user document:", error);
-          setLoading(false);
         });
       } else {
         setDbUser(null);
-        setLoading(false);
       }
     });
 

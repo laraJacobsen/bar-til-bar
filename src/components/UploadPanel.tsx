@@ -85,13 +85,13 @@ export function UploadPanel() {
   };
 
   return (
-    <div className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
+    <div className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
       <h2 className="text-xl font-semibold">Upload proof</h2>
       <p className="mt-2 text-sm text-slate-400">Photos are stored in Cloudflare R2 and reviewed by an admin.</p>
       <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} disabled={loading} className="mt-4 w-full rounded-2xl border border-white/10 bg-slate-900/70 p-3" />
       {previewUrl ? (
         <div className="relative mt-4">
-          <img src={previewUrl} alt="Upload preview" className="h-48 w-full rounded-2xl object-cover" />
+          <img src={previewUrl} alt="Upload preview" className="h-40 w-full rounded-2xl object-cover sm:h-48" />
           <button type="button" onClick={clearSelection} disabled={loading} className="absolute right-2 top-2 rounded-full bg-slate-950/80 px-3 py-1 text-sm font-medium text-white backdrop-blur">
             Remove
           </button>
