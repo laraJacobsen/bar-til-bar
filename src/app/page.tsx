@@ -3,22 +3,23 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Home, Target, Images, Trophy, User } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { EventDoc } from '@/lib/types';
 
 const navItems = [
-  { label: 'Home', href: '/' },
-  { label: 'Challenges', href: '/challenges' },
-  { label: 'Gallery', href: '/gallery' },
-  { label: 'Leaderboard', href: '/leaderboard' },
-  { label: 'Profile', href: '/profile' },
+  { label: 'Home', href: '/', icon: Home },
+  { label: 'Challenges', href: '/challenges', icon: Target },
+  { label: 'Gallery', href: '/gallery', icon: Images },
+  { label: 'Leaderboard', href: '/leaderboard', icon: Trophy },
+  { label: 'Profile', href: '/profile', icon: User },
 ] as const;
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, dbUser, loading, signOutUser } = useAuth();
+  const { user, dbUser, loading } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(null);
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(null);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
@@ -34,16 +35,20 @@ export default function HomePage() {
     }
 
     const load = async () => {
-      await seedDemoData();
-      const activeEvent = await getActiveEvent();
-      setEvent(activeEvent);
-
-      if (user?.uid) {
-        const group = await getUserGroup(user.uid);
-        setCurrentGroup(group || null);
+      // Seed once per browser instead of reading the whole `events` collection on every load.
+      if (!localStorage.getItem('bartilbar:seeded')) {
+        await seedDemoData();
+        localStorage.setItem('bartilbar:seeded', 'true');
       }
 
-      const allGroups = await getGroups();
+      // These reads are independent — run them in parallel rather than as a waterfall.
+      const [activeEvent, group, allGroups] = await Promise.all([
+        getActiveEvent(),
+        user?.uid ? getUserGroup(user.uid) : Promise.resolve(null),
+        getGroups(),
+      ]);
+      setEvent(activeEvent);
+      setCurrentGroup(group || null);
       setGroups(allGroups);
     };
 
@@ -171,30 +176,20 @@ export default function HomePage() {
       </section>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-5xl justify-between px-4 py-3">
-          {[
-            ...navItems,
-            ...(dbUser?.role === 'admin' ? [{ label: 'Admin', href: '/admin' }] : []),
-          ].map((item) => (
-            <Link key={item.label} href={item.href as any} className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10">
-              {item.label}
-            </Link>
-          ))}
-          {user ? (
-            <button
-              onClick={async () => {
-                try {
-                  await signOutUser();
-                } catch (e) {
-                  console.error('Sign out failed', e);
-                }
-                router.replace('/login');
-              }}
-              className="rounded-full px-3 py-2 text-sm text-slate-300 hover:bg-white/10"
-            >
-              Log out
-            </button>
-          ) : null}
+        <div className="mx-auto flex max-w-5xl px-2 py-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.label}
+                href={item.href as any}
+                className="flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-slate-300 transition hover:bg-white/10"
+              >
+                <Icon className="h-5 w-5" aria-hidden />
+                <span className="text-[11px] font-medium">{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </main>

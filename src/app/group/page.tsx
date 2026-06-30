@@ -89,7 +89,7 @@ export default function GroupPage() {
         <div className="mt-6 space-y-4">
           {group.pictureUrl ? (
             <div className="relative">
-              <img src={group.pictureUrl} alt={group.name} className="w-full rounded-2xl object-cover h-64" />
+              <img src={group.pictureUrl} alt={group.name} className="h-48 w-full rounded-2xl object-cover sm:h-64" />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}

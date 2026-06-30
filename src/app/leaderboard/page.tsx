@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 const groups = [
@@ -17,9 +18,12 @@ export default function LeaderboardPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
-      <div>
-        <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Live leaderboard</p>
-        <h1 className="text-2xl font-semibold">Points update in real time</h1>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Live leaderboard</p>
+          <h1 className="text-2xl font-semibold">Points update in real time</h1>
+        </div>
+        <Link href="/" className="shrink-0 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-100">Back</Link>
       </div>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">

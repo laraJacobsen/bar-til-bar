@@ -1,9 +1,14 @@
+import Link from 'next/link';
+
 export default function GalleryPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
-      <div>
-        <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Event gallery</p>
-        <h1 className="text-2xl font-semibold">Your group's best moments</h1>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Event gallery</p>
+          <h1 className="text-2xl font-semibold">Your group's best moments</h1>
+        </div>
+        <Link href="/" className="shrink-0 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-100">Back</Link>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2">

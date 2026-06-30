@@ -4,17 +4,11 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { createGroup, getGroups, type GroupDoc } from '@/lib/group';
-import { getAllSubmissions, getActiveEvent, getEventById, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
+import { type GroupDoc } from '@/lib/group';
+import { getAllSubmissions, getEventById, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
-  const [eventName, setEventName] = useState('Saturday Night Crawl');
-  const [barName, setBarName] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [challengeTitle, setChallengeTitle] = useState('');
-  const [challengePoints, setChallengePoints] = useState('50');
-  const [challengeBarId, setChallengeBarId] = useState('');
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
@@ -44,13 +38,21 @@ export default function AdminPage() {
   const [deleteEventCandidate, setDeleteEventCandidate] = useState<EventDoc | null>(null);
 
   const loadData = async () => {
-    const barsSnap = await getDocs(collection(db, 'bars'));
-    const groupsSnap = await getDocs(collection(db, 'groups'));
-    const allSubs = await getAllSubmissions();
-    const challengesSnap = await getDocs(collection(db, 'challenges'));
-    const active = await getActiveEvent();
-    const allEvents = await getEvents();
-    
+    // Independent reads — run them together instead of as a 6-step waterfall.
+    const [barsSnap, groupsSnap, allSubs, challengesSnap, allEvents] = await Promise.all([
+      getDocs(collection(db, 'bars')),
+      getDocs(collection(db, 'groups')),
+      getAllSubmissions(),
+      getDocs(collection(db, 'challenges')),
+      getEvents(),
+    ]);
+
+    // Derive the active event from the events we already loaded (newest active) rather
+    // than issuing a separate read of the events collection.
+    const active = allEvents
+      .filter((e) => e.status === 'active')
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
+
     const loadedBars = barsSnap.docs.map((docSnap) => ({
       id: docSnap.id,
       ...(docSnap.data() as Omit<BarDoc, 'id'>),
@@ -132,11 +134,13 @@ export default function AdminPage() {
         }
       }
 
-      // load bars for this event (global bars ordered by order)
-      const barsModule = await import('firebase/firestore');
-      const { collection, getDocs, query, orderBy } = barsModule;
-      const barsSnap = await getDocs(query(collection(db, 'bars'), orderBy('order')));
-      const loaded = barsSnap.docs.map((d) => (d.data() as any).name);
+      // load only the bars belonging to this event, ordered by their sequence
+      const barsSnap = await getDocs(collection(db, 'bars'));
+      const loaded = barsSnap.docs
+        .map((d) => d.data() as BarDoc)
+        .filter((b) => b.eventId === id)
+        .sort((a, b) => a.order - b.order)
+        .map((b) => b.name);
       if (loaded.length) setWizardBars(loaded);
 
       setShowWizard(true);
@@ -162,23 +166,42 @@ export default function AdminPage() {
     setIsInitializing(true);
     setMessage('');
     try {
-      // Only remove bars/challenges/submissions associated with the existing active event (if any).
+      // Archive every currently-active event and clean up its bars/challenges/groups/submissions
+      // so that initializing a new crawl never leaves a second dangling active event behind.
       const batch = writeBatch(db);
-      const existingActive = await getActiveEvent();
+      const endedAt = new Date().toISOString();
+      const eventsSnap = await getDocs(collection(db, 'events'));
+      const activeEventIds = new Set(
+        eventsSnap.docs.filter((d) => (d.data() as EventDoc).status === 'active').map((d) => d.id),
+      );
 
-      if (existingActive) {
-        // delete bars for this event
-        const barsSnap = await getDocs(collection(db, 'bars'));
-        const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === existingActive.id);
+      if (activeEventIds.size > 0) {
+        // archive the old active event(s) so exactly one event stays active after init
+        eventsSnap.docs
+          .filter((d) => activeEventIds.has(d.id))
+          .forEach((docSnap) => batch.update(docSnap.ref, { status: 'ended', endsAt: endedAt }));
+
+        // gather the collections to clean up in parallel rather than one after another
+        const [barsSnap, challengesSnap, groupsSnap, submissionsSnap] = await Promise.all([
+          getDocs(collection(db, 'bars')),
+          getDocs(collection(db, 'challenges')),
+          getDocs(collection(db, 'groups')),
+          getDocs(collection(db, 'submissions')),
+        ]);
+
+        // delete bars for these events
+        const barsToDelete = barsSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
         barsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
 
-        // delete challenges for this event
-        const challengesSnap = await getDocs(collection(db, 'challenges'));
-        const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === existingActive.id);
+        // delete challenges for these events
+        const challengesToDelete = challengesSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
         challengesToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
 
+        // delete groups for these events (previously left behind, surfacing stale names)
+        const groupsToDelete = groupsSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
+        groupsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+
         // delete submissions that reference the deleted challenges or bars
-        const submissionsSnap = await getDocs(collection(db, 'submissions'));
         const challengeIds = new Set(challengesToDelete.map((d) => d.id));
         const barIds = new Set(barsToDelete.map((d) => d.id));
         submissionsSnap.docs.forEach((docSnap) => {
@@ -282,61 +305,6 @@ export default function AdminPage() {
     }
   };
 
-  const saveEvent = async () => {
-    const eventId = 'active-event';
-    const event: EventDoc = {
-      id: eventId,
-      name: eventName,
-      description: 'Admin-created event',
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
-    await setDoc(doc(db, 'events', eventId), event);
-    setMessage('Event saved.');
-  };
-
-  const saveBar = async () => {
-    if (!barName.trim()) return;
-    const barId = barName.toLowerCase().replace(/\s+/g, '-');
-    await setDoc(doc(db, 'bars', barId), {
-      id: barId,
-      name: barName,
-      address: 'TBD',
-      description: 'Admin-created stop',
-      order: bars.length + 1,
-    });
-    setBars((prev) => [...prev, { id: barId, name: barName, address: 'TBD', description: 'Admin-created stop', order: prev.length + 1 }]);
-    setBarName('');
-    setMessage('Bar added.');
-  };
-
-  const saveGroup = async () => {
-    if (!groupName.trim()) return;
-    const created = await createGroup({ name: groupName, ownerId: 'admin', color: '#8b5cf6' });
-    setGroups((prev) => [...prev, created]);
-    setGroupName('');
-    setMessage(`Group created: ${created.name}`);
-  };
-
-  const saveChallenge = async () => {
-    if (!challengeTitle.trim() || !challengeBarId) return;
-    const challengeId = challengeTitle.toLowerCase().replace(/\s+/g, '-');
-    const challenge: ChallengeDoc = {
-      id: challengeId,
-      barId: challengeBarId,
-      title: challengeTitle,
-      description: 'Admin-created challenge',
-      points: Number(challengePoints) || 50,
-      difficulty: 'easy',
-      requiresPhoto: true,
-    };
-    await setDoc(doc(db, 'challenges', challengeId), challenge);
-    setChallengeTitle('');
-    setChallengePoints('50');
-    setChallenges((prev) => [...prev, challenge]);
-    setMessage('Challenge added.');
-  };
-
   const removeChallenge = (challengeId: string, title?: string) => {
     setDeleteCandidate({ id: challengeId, title });
   };
@@ -433,12 +401,12 @@ export default function AdminPage() {
         </div>
         <div className="mt-3 space-y-2">
           {events.length ? events.map((ev) => (
-            <div key={ev.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3">
+            <div key={ev.id} className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-semibold">{ev.name}</p>
                 <p className="text-xs text-slate-400">{ev.status} • {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start set'}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button onClick={() => loadEvent(ev.id)} className="rounded-full border border-white/10 px-3 py-1 text-sm">Load</button>
                 {ev.status !== 'active' ? (
                   <button onClick={() => activateEvent(ev.id)} className="rounded-full bg-emerald-600 px-3 py-1 text-sm text-white">Activate</button>
@@ -462,10 +430,10 @@ export default function AdminPage() {
             <p className="mt-1 text-sm text-slate-400">Instantly create and launch a new bar crawl event with custom groups, start times, and routes.</p>
           </div>
           {!showWizard && (
-            <div className="flex gap-3 items-center">
+            <div className="flex w-full flex-wrap gap-3 items-center sm:w-auto">
               <button
                 onClick={() => setShowWizard(true)}
-                disabled={isInitializing || Boolean(activeEvent && activeEvent.status === 'active' && (!activeEvent.startsAt || new Date(activeEvent.startsAt).getTime() <= Date.now()))}
+                disabled={isInitializing}
                 className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 🚀 Make New Bar Crawl
@@ -473,9 +441,9 @@ export default function AdminPage() {
               {activeEvent && activeEvent.status === 'active' ? (
                 <button onClick={() => setEndEventConfirm(true)} className="rounded-full border border-white/10 bg-rose-600/10 px-4 py-2 text-sm text-rose-200">End Crawl</button>
               ) : null}
-              <div className="flex items-center gap-2">
-                <input value={loadEventId} onChange={(e) => setLoadEventId(e.target.value)} placeholder="event id (active-event)" className="rounded-2xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white" />
-                <button onClick={() => loadEvent()} className="rounded-full border border-white/10 px-3 py-2 text-sm">Load</button>
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <input value={loadEventId} onChange={(e) => setLoadEventId(e.target.value)} placeholder="event id (active-event)" className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white sm:flex-none" />
+                <button onClick={() => loadEvent()} className="rounded-full border border-white/10 px-3 py-2 text-sm shrink-0">Load</button>
               </div>
             </div>
           )}
@@ -594,64 +562,6 @@ export default function AdminPage() {
         )}
       </section>
 
-      {/* Manual Fine-Tuning Setup Accordion/Sections */}
-      <div className="border border-white/10 rounded-[2rem] bg-white/5 overflow-hidden">
-        <details className="group">
-          <summary className="flex items-center justify-between cursor-pointer p-5 select-none hover:bg-white/5 transition duration-200">
-            <span className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Manual Fine-Tuning (Advanced Settings)</span>
-            <span className="transition group-open:rotate-180">
-              <svg fill="none" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="24" className="text-slate-400"><path d="M6 9l6 6 6-6"></path></svg>
-            </span>
-          </summary>
-          <div className="p-5 border-t border-white/10 space-y-6">
-            <section className="rounded-2xl border border-white/5 bg-slate-900/40 p-4">
-              <h2 className="text-base font-semibold">Event Name Setup</h2>
-              <div className="mt-3 flex gap-2">
-                <input value={eventName} onChange={(event) => setEventName(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white" placeholder="Event name" />
-                <button onClick={saveEvent} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200 transition">Save event</button>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-white/5 bg-slate-900/40 p-4">
-              <h2 className="text-base font-semibold">Add Individual Bar Stop</h2>
-              <div className="mt-3 flex gap-2">
-                <input value={barName} onChange={(event) => setBarName(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white" placeholder="Bar name" />
-                <button onClick={saveBar} className="rounded-full bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 transition">Add bar</button>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {bars.map((bar) => <div key={bar.id} className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs">{bar.name}</div>)}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-white/5 bg-slate-900/40 p-4">
-              <h2 className="text-base font-semibold">Add Custom Group</h2>
-              <div className="mt-3 flex gap-2">
-                <input value={groupName} onChange={(event) => setGroupName(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white" placeholder="Group name" />
-                <button onClick={saveGroup} className="rounded-full bg-violet-500 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600 transition">Add group</button>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {groups.map((group) => <div key={group.id} className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs">{group.name}</div>)}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-white/5 bg-slate-900/40 p-4">
-              <h2 className="text-base font-semibold">Add Custom Challenge</h2>
-              <div className="mt-3 space-y-3">
-                <input value={challengeTitle} onChange={(event) => setChallengeTitle(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white" placeholder="Challenge title" />
-                <div className="flex gap-2">
-                  <input value={challengePoints} onChange={(event) => setChallengePoints(event.target.value)} className="w-24 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white" placeholder="Points" />
-                  <select value={challengeBarId} onChange={(event) => setChallengeBarId(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-2.5 text-sm text-white">
-                    <option value="">Select a bar</option>
-                    {bars.map((bar) => <option key={bar.id} value={bar.id}>{bar.name}</option>)}
-                  </select>
-                </div>
-                <button onClick={saveChallenge} className="rounded-full bg-pink-500 px-4 py-2 text-sm font-semibold text-white hover:bg-pink-600 transition">Add challenge</button>
-              </div>
-            </section>
-          </div>
-        </details>
-      </div>
-
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5 backdrop-blur-xl">
         <h2 className="text-xl font-semibold">Challenges (by bar)</h2>
         <p className="mt-2 text-sm text-slate-400">View and remove challenges assigned to each bar.</p>
@@ -707,7 +617,7 @@ export default function AdminPage() {
                       <span className="rounded-full bg-yellow-500/15 px-2 py-1 text-xs text-yellow-200">+{submission.pointsAwarded} pts</span>
                     ) : null}
                   </div>
-                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-48 w-full rounded-2xl object-cover" /> : null}
+                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-40 w-full rounded-2xl object-cover sm:h-48" /> : null}
                   <div className="mt-3 flex gap-2">
                     <button
                       type="button"
@@ -746,7 +656,7 @@ export default function AdminPage() {
                         {submission.status}
                       </span>
                     </div>
-                    {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-24 w-full rounded-2xl object-cover" /> : null}
+                    {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-20 w-full rounded-2xl object-cover sm:h-24" /> : null}
                   </div>
                 );
               })}
@@ -758,7 +668,7 @@ export default function AdminPage() {
       {deleteCandidate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteCandidate(null)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
             <h3 className="text-lg font-semibold">Delete challenge</h3>
             <p className="mt-2 text-sm text-slate-400">Are you sure you want to delete <strong>{deleteCandidate.title || deleteCandidate.id}</strong>? This action cannot be undone.</p>
             <div className="mt-4 flex justify-end gap-3">
@@ -771,7 +681,7 @@ export default function AdminPage() {
       {endEventConfirm && activeEvent ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setEndEventConfirm(false)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
             <h3 className="text-lg font-semibold">End current crawl</h3>
             <p className="mt-2 text-sm text-slate-400">Are you sure you want to end the crawl <strong>{activeEvent.name}</strong>? This will stop progression and archive the event.</p>
             <div className="mt-4 flex justify-end gap-3">
@@ -784,7 +694,7 @@ export default function AdminPage() {
       {deleteEventCandidate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteEventCandidate(null)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
             <h3 className="text-lg font-semibold">Delete event</h3>
             <p className="mt-2 text-sm text-slate-400">Delete <strong>{deleteEventCandidate.name}</strong> and all its data? This will remove bars, challenges, and submissions for this event.</p>
             <div className="mt-4 flex justify-end gap-3">
