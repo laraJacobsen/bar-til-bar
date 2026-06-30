@@ -129,22 +129,20 @@ export default function HomePage() {
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-brand-500/30 to-accent/30 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-pink-100">Route progress</p>
-            <h2 className="text-xl font-semibold">Demo route in motion</h2>
-          </div>
-          <div className="text-right text-sm text-pink-100">
-            <p>Ends in</p>
-            <p className="font-semibold">06:00:00</p>
-          </div>
-        </div>
+        <p className="text-sm text-pink-100">Route progress</p>
+        <h2 className="text-xl font-semibold mt-0.5">{event?.name ?? 'Bar Til Bar'}</h2>
         <div className="mt-4 h-3 rounded-full bg-slate-900/70">
-          <div className="h-3 w-1/3 rounded-full bg-gradient-to-r from-pink-500 to-violet-500" />
+          {event?.started && <div className="h-3 w-1/3 rounded-full bg-gradient-to-r from-pink-500 to-violet-500" />}
         </div>
-        <Link href="/challenges" className="mt-6 flex w-full items-center justify-center rounded-full bg-white px-4 py-3 font-semibold text-slate-900">
-          Go to Current Challenge
-        </Link>
+        {event?.started ? (
+          <Link href="/challenges" className="mt-6 flex w-full items-center justify-center rounded-full bg-white px-4 py-3 font-semibold text-slate-900">
+            Go to Current Challenge
+          </Link>
+        ) : (
+          <div className="mt-6 flex w-full items-center justify-center rounded-full bg-white/10 px-4 py-3 font-semibold text-slate-500 cursor-not-allowed select-none">
+            Waiting for leader to start
+          </div>
+        )}
       </section>
 
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">

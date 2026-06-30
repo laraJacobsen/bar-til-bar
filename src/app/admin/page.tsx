@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { collection, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
 import { getAllSubmissions, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
@@ -42,6 +42,9 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
   // Photo gallery drill-down
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
 
+  // Auto-refresh while in the waiting room
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const loadData = async () => {
     const [barsSnap, groupsSnap, allSubs, allEvents] = await Promise.all([
       getDocs(collection(db, 'bars')),
@@ -77,33 +80,29 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
     loadData();
   }, []);
 
+  // Poll every 8s while crawl hasn't started so new groups appear automatically
+  useEffect(() => {
+    if (activeEvent && !activeEvent.started) {
+      autoRefreshRef.current = setInterval(loadData, 8000);
+    } else {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    }
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, [activeEvent?.id, activeEvent?.started]);
+
   // Deletes event + all associated bars, challenges, groups, and submissions
   const deleteEventFull = async (eventId: string) => {
-    const [barsSnap, challengesSnap, groupsSnap, submissionsSnap] = await Promise.all([
+    const [barsSnap, challengesSnap, groupsSnap] = await Promise.all([
       getDocs(collection(db, 'bars')),
       getDocs(collection(db, 'challenges')),
       getDocs(collection(db, 'groups')),
-      getDocs(collection(db, 'submissions')),
     ]);
 
     const batch = writeBatch(db);
 
-    const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
-    barsToDelete.forEach((d) => batch.delete(d.ref));
-
-    const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
-    challengesToDelete.forEach((d) => batch.delete(d.ref));
-
+    barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
+    challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
     groupsSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
-
-    const challengeIds = new Set(challengesToDelete.map((d) => d.id));
-    const barIds = new Set(barsToDelete.map((d) => d.id));
-    submissionsSnap.docs.forEach((d) => {
-      const s = d.data() as SubmissionDoc;
-      if (s.eventId === eventId || challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
-        batch.delete(d.ref);
-      }
-    });
 
     batch.delete(doc(db, 'events', eventId));
     await batch.commit();
@@ -122,6 +121,16 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
       setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
     } finally {
       setEndConfirm(false);
+    }
+  };
+
+  const kickGroup = async (groupId: string) => {
+    try {
+      await deleteDoc(doc(db, 'groups', groupId));
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      if (activeEvent) await recalculateSchedule(activeEvent.id);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to remove group');
     }
   };
 
@@ -315,7 +324,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
                   onClick={startCrawl}
                   className="rounded-full bg-emerald-500 hover:bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition"
                 >
-                  ▶ Start Crawl
+                  Start Crawl
                 </button>
               ) : (
                 <button
@@ -338,38 +347,48 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
           )}
         </div>
 
+        {/* Join code — shown first so it's easy to share */}
+        {activeEvent && !editingTimes && activeEvent.joinCode && (
+          <div className="mt-5 flex items-center justify-between rounded-2xl border border-violet-400/20 bg-violet-500/10 px-5 py-4">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-violet-300 font-semibold">Crawl code</p>
+              <p className="text-3xl font-mono font-bold tracking-[0.3em] text-white mt-0.5">{activeEvent.joinCode}</p>
+            </div>
+            <p className="text-xs text-slate-400 text-right max-w-[110px] leading-relaxed">Share with participants to join this crawl.</p>
+          </div>
+        )}
+
         {/* Waiting room — groups that have joined, shown before crawl starts */}
         {activeEvent && !activeEvent.started && !editingTimes && (
           <div className="mt-5 border-t border-white/10 pt-5">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-slate-300">Groups joined ({groups.length})</p>
-              <button onClick={loadData} className="text-xs text-slate-500 hover:text-slate-300 transition">Refresh</button>
+              <span className="text-xs text-slate-600">auto-refreshing</span>
             </div>
             {groups.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No groups yet. Share the crawl code below.</p>
+              <p className="text-sm text-slate-500 italic">No groups yet. Share the crawl code above.</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2">
                 {groups.map((g) => (
-                  <div key={g.id} className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-900/60 pl-2 pr-3 py-1.5">
-                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: g.color ?? '#f43f5e' }} />
-                    <span className="text-sm font-medium">{g.name}</span>
-                    <span className="text-xs text-slate-500">{g.members.length}p</span>
+                  <div key={g.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: g.color ?? '#f43f5e' }} />
+                      <div>
+                        <p className="font-medium leading-tight">{g.name}</p>
+                        <p className="text-xs text-slate-500">{g.members.length} {g.members.length === 1 ? 'person' : 'people'}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => kickGroup(g.id)}
+                      className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 transition"
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
             )}
-            <p className="mt-3 text-xs text-slate-500">Press <strong className="text-slate-300">▶ Start Crawl</strong> when everyone is in. This locks the route schedule.</p>
-          </div>
-        )}
-
-        {/* Join code */}
-        {activeEvent && !editingTimes && activeEvent.joinCode && (
-          <div className="mt-4 inline-flex items-center gap-3 rounded-2xl border border-violet-400/20 bg-violet-500/10 px-4 py-3">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-violet-300 font-semibold">Crawl code</p>
-              <p className="text-2xl font-mono font-bold tracking-[0.25em] text-white">{activeEvent.joinCode}</p>
-            </div>
-            <p className="text-xs text-slate-400 max-w-[140px]">Share this with participants to link them to this crawl.</p>
+            <p className="mt-4 text-xs text-slate-500">Press <strong className="text-slate-300">Start Crawl</strong> when everyone is in. Routes are calculated at that point.</p>
           </div>
         )}
 

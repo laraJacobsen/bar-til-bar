@@ -77,27 +77,18 @@ export default function ChallengesPage() {
     );
   }
 
-  // Crawl not started yet
   if (!event?.started) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-4 px-4 pb-24 text-slate-100">
-        <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/5 p-8 text-center">
-          <p className="text-4xl mb-4">⏳</p>
-          <h1 className="text-xl font-semibold">Waiting for the crawl to start</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            {event
-              ? 'The organiser hasn\'t started the crawl yet. Hang tight!'
-              : 'No active crawl found. Check with your organiser.'}
-          </p>
-          {myGroup && (
-            <div className="mt-5 rounded-2xl border border-white/10 bg-slate-900/60 p-3">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">Your group</p>
-              <p className="mt-1 font-semibold">{myGroup.name}</p>
-            </div>
-          )}
-          <Link href="/" className="mt-5 block rounded-full border border-white/10 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5 transition">
-            Back to home
-          </Link>
+      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
+            <h1 className="text-2xl font-semibold">—</h1>
+          </div>
+          <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">Back</Link>
+        </div>
+        <div className="rounded-[2rem] border border-dashed border-white/10 bg-white/5 p-8 text-center">
+          <p className="text-sm text-slate-400">Waiting for the leader to start the crawl…</p>
         </div>
       </main>
     );
