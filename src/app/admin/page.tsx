@@ -2,20 +2,27 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { collection, doc, getDocs, setDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { type GroupDoc } from '@/lib/group';
-import { getAllSubmissions, getEventById, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
-import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
+import { getAllSubmissions, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
+import type { BarDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function AdminPage() {
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
-  const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
   const [submissions, setSubmissions] = useState<SubmissionDoc[]>([]);
   const [message, setMessage] = useState('');
+  const [activeEvent, setActiveEvent] = useState<EventDoc | null>(null);
 
-  // Crawl Wizard state
+  // Inline edit (name + times only — stops are immutable after creation)
+  const [editingTimes, setEditingTimes] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editDurationHours, setEditDurationHours] = useState(6);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Create wizard (only visible when no active crawl)
   const [showWizard, setShowWizard] = useState(false);
   const [crawlName, setCrawlName] = useState('Saturday Night Crawl');
   const [startTime, setStartTime] = useState(() => {
@@ -25,128 +32,123 @@ export default function AdminPage() {
     return new Date(nextHour.getTime() - tzOffset).toISOString().slice(0, 16);
   });
   const [durationHours, setDurationHours] = useState(6);
-  const [numGroups, setNumGroups] = useState(4);
-  const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Room', 'Neon Tunnel', 'Starlight Lounge']);
+const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Room', 'Neon Tunnel', 'Starlight Lounge']);
   const [newWizardBar, setNewWizardBar] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
-  const [deleteCandidate, setDeleteCandidate] = useState<{ id: string; title?: string } | null>(null);
-  const [recentlyDeleted, setRecentlyDeleted] = useState<{ challenge: ChallengeDoc; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
-  const [activeEvent, setActiveEvent] = useState<EventDoc | null>(null);
-  const [events, setEvents] = useState<EventDoc[]>([]);
-  const [endEventConfirm, setEndEventConfirm] = useState(false);
-  const [deleteEventCandidate, setDeleteEventCandidate] = useState<EventDoc | null>(null);
+
+  // End crawl confirmation
+  const [endConfirm, setEndConfirm] = useState(false);
+
+  // Photo gallery drill-down
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
 
   const loadData = async () => {
-    // Independent reads — run them together instead of as a 6-step waterfall.
-    const [barsSnap, groupsSnap, allSubs, challengesSnap, allEvents] = await Promise.all([
+    const [barsSnap, groupsSnap, allSubs, allEvents] = await Promise.all([
       getDocs(collection(db, 'bars')),
       getDocs(collection(db, 'groups')),
       getAllSubmissions(),
-      getDocs(collection(db, 'challenges')),
       getEvents(),
     ]);
 
-    // Derive the active event from the events we already loaded (newest active) rather
-    // than issuing a separate read of the events collection.
-    const active = allEvents
-      .filter((e) => e.status === 'active')
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
-
-    const loadedBars = barsSnap.docs.map((docSnap) => ({
-      id: docSnap.id,
-      ...(docSnap.data() as Omit<BarDoc, 'id'>),
-    })).sort((a, b) => a.order - b.order);
+    const active =
+      allEvents
+        .filter((e) => e.status === 'active')
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
 
     setActiveEvent(active);
-    setEvents(allEvents);
-    setBars(active ? loadedBars.filter((b) => ((b as any).eventId === active.id)) : loadedBars);
-    const loadedGroups = groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) }));
-    setGroups(active ? loadedGroups.filter((g) => g.eventId === active.id || !g.eventId) : loadedGroups);
-    setSubmissions(active ? allSubs.filter((s) => s.eventId === active.id || !s.eventId) : allSubs);
-    const loadedChallenges = challengesSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
-    setChallenges(active ? loadedChallenges.filter((c) => ((c as any).eventId === active.id)) : loadedChallenges);
-  };
 
-  const activateEvent = async (eventId: string) => {
-    try {
-      const startsAt = new Date().toISOString();
-      await setDoc(doc(db, 'events', eventId), { status: 'active', startsAt, endsAt: undefined }, { merge: true });
-      setMessage('Event activated.');
-      await loadData();
-    } catch (err) {
-      console.error(err);
-      setMessage(err instanceof Error ? err.message : 'Failed to activate event');
-    }
-  };
+    const loadedBars = barsSnap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<BarDoc, 'id'>) }))
+      .sort((a, b) => a.order - b.order);
+    setBars(active ? loadedBars.filter((b) => (b as any).eventId === active.id) : []);
 
-  const deleteEvent = async (eventId: string) => {
-    try {
-      // delete event and its associated bars/challenges/submissions
-      const batch = writeBatch(db);
-      const barsSnap = await getDocs(collection(db, 'bars'));
-      const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
-      barsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
+    const loadedGroups = groupsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GroupDoc, 'id'>) }));
+    setGroups(active ? loadedGroups.filter((g) => g.eventId === active.id || !g.eventId) : []);
 
-      const challengesSnap = await getDocs(collection(db, 'challenges'));
-      const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
-      challengesToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
-
-      const submissionsSnap = await getDocs(collection(db, 'submissions'));
-      const challengeIds = new Set(challengesToDelete.map((d) => d.id));
-      const barIds = new Set(barsToDelete.map((d) => d.id));
-      submissionsSnap.docs.forEach((docSnap) => {
-        const s = docSnap.data() as SubmissionDoc;
-        if (challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
-          batch.delete(docSnap.ref);
-        }
-      });
-
-      batch.delete(doc(db, 'events', eventId));
-      await batch.commit();
-      setMessage('Event deleted.');
-      setDeleteEventCandidate(null);
-      await loadData();
-    } catch (err) {
-      console.error(err);
-      setMessage(err instanceof Error ? err.message : 'Failed to delete event');
-    }
+    setSubmissions(active ? allSubs.filter((s) => s.eventId === active.id || !s.eventId) : []);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadEvent = async (eventId: string) => {
-    try {
-      const id = eventId;
-      if (!id) return setMessage('Provide an event id');
-      const evDoc = await import('@/lib/firestore').then((m) => m.getEventById(id));
-      if (!evDoc) return setMessage(`Event not found: ${id}`);
-      setCrawlName(evDoc.name || '');
-      if (evDoc.startsAt) {
-        const dt = new Date(evDoc.startsAt);
-        const tzOffset = dt.getTimezoneOffset() * 60000;
-        setStartTime(new Date(dt.getTime() - tzOffset).toISOString().slice(0, 16));
-        if (evDoc.endsAt) {
-          const dur = (new Date(evDoc.endsAt).getTime() - new Date(evDoc.startsAt).getTime()) / (1000 * 60 * 60);
-          setDurationHours(Math.max(1, Math.round(dur)));
-        }
+  // Deletes event + all associated bars, challenges, groups, and submissions
+  const deleteEventFull = async (eventId: string) => {
+    const [barsSnap, challengesSnap, groupsSnap, submissionsSnap] = await Promise.all([
+      getDocs(collection(db, 'bars')),
+      getDocs(collection(db, 'challenges')),
+      getDocs(collection(db, 'groups')),
+      getDocs(collection(db, 'submissions')),
+    ]);
+
+    const batch = writeBatch(db);
+
+    const barsToDelete = barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
+    barsToDelete.forEach((d) => batch.delete(d.ref));
+
+    const challengesToDelete = challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
+    challengesToDelete.forEach((d) => batch.delete(d.ref));
+
+    groupsSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
+
+    const challengeIds = new Set(challengesToDelete.map((d) => d.id));
+    const barIds = new Set(barsToDelete.map((d) => d.id));
+    submissionsSnap.docs.forEach((d) => {
+      const s = d.data() as SubmissionDoc;
+      if (s.eventId === eventId || challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
+        batch.delete(d.ref);
       }
+    });
 
-      // load only the bars belonging to this event, ordered by their sequence
-      const barsSnap = await getDocs(collection(db, 'bars'));
-      const loaded = barsSnap.docs
-        .map((d) => d.data() as BarDoc)
-        .filter((b) => b.eventId === id)
-        .sort((a, b) => a.order - b.order)
-        .map((b) => b.name);
-      if (loaded.length) setWizardBars(loaded);
+    batch.delete(doc(db, 'events', eventId));
+    await batch.commit();
+  };
 
-      setShowWizard(true);
-      setMessage(`Loaded event ${id}`);
+  const endAndDeleteCrawl = async () => {
+    if (!activeEvent) return;
+    try {
+      await deleteEventFull(activeEvent.id);
+      setActiveEvent(null);
+      setGroups([]);
+      setBars([]);
+      setSubmissions([]);
+      setMessage('Crawl ended and deleted.');
     } catch (err) {
-      console.error(err);
-      setMessage(err instanceof Error ? err.message : 'Failed to load event');
+      setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
+    } finally {
+      setEndConfirm(false);
+    }
+  };
+
+  const openEditTimes = () => {
+    if (!activeEvent) return;
+    setEditName(activeEvent.name);
+    if (activeEvent.startsAt) {
+      const dt = new Date(activeEvent.startsAt);
+      const tzOffset = dt.getTimezoneOffset() * 60000;
+      setEditStartTime(new Date(dt.getTime() - tzOffset).toISOString().slice(0, 16));
+      if (activeEvent.endsAt) {
+        const dur = (new Date(activeEvent.endsAt).getTime() - dt.getTime()) / (1000 * 60 * 60);
+        setEditDurationHours(Math.max(1, Math.round(dur)));
+      }
+    }
+    setEditingTimes(true);
+  };
+
+  const saveTimesEdit = async () => {
+    if (!activeEvent) return;
+    setIsSaving(true);
+    try {
+      const startsAt = new Date(editStartTime).toISOString();
+      const endsAt = new Date(new Date(editStartTime).getTime() + editDurationHours * 60 * 60 * 1000).toISOString();
+      await setDoc(doc(db, 'events', activeEvent.id), { name: editName, startsAt, endsAt }, { merge: true });
+      setEditingTimes(false);
+      await loadData();
+      setMessage('Crawl updated.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to update crawl');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -165,67 +167,18 @@ export default function AdminPage() {
     setIsInitializing(true);
     setMessage('');
     try {
-      // Archive every currently-active event and clean up its bars/challenges/groups/submissions
-      // so that initializing a new crawl never leaves a second dangling active event behind.
-      const batch = writeBatch(db);
-      const endedAt = new Date().toISOString();
-      const eventsSnap = await getDocs(collection(db, 'events'));
-      const activeEventIds = new Set(
-        eventsSnap.docs.filter((d) => (d.data() as EventDoc).status === 'active').map((d) => d.id),
-      );
-
-      if (activeEventIds.size > 0) {
-        // archive the old active event(s) so exactly one event stays active after init
-        eventsSnap.docs
-          .filter((d) => activeEventIds.has(d.id))
-          .forEach((docSnap) => batch.update(docSnap.ref, { status: 'ended', endsAt: endedAt }));
-
-        // gather the collections to clean up in parallel rather than one after another
-        const [barsSnap, challengesSnap, groupsSnap, submissionsSnap] = await Promise.all([
-          getDocs(collection(db, 'bars')),
-          getDocs(collection(db, 'challenges')),
-          getDocs(collection(db, 'groups')),
-          getDocs(collection(db, 'submissions')),
-        ]);
-
-        // delete bars for these events
-        const barsToDelete = barsSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
-        barsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
-
-        // delete challenges for these events
-        const challengesToDelete = challengesSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
-        challengesToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
-
-        // delete groups for these events (previously left behind, surfacing stale names)
-        const groupsToDelete = groupsSnap.docs.filter((d) => activeEventIds.has((d.data() as any).eventId));
-        groupsToDelete.forEach((docSnap) => batch.delete(docSnap.ref));
-
-        // delete submissions that reference the deleted challenges or bars
-        const challengeIds = new Set(challengesToDelete.map((d) => d.id));
-        const barIds = new Set(barsToDelete.map((d) => d.id));
-        submissionsSnap.docs.forEach((docSnap) => {
-          const s = docSnap.data() as SubmissionDoc;
-          if (challengeIds.has(s.challengeId) || barIds.has(s.barId)) {
-            batch.delete(docSnap.ref);
-          }
-        });
-
-        await batch.commit();
-      }
-
       const eventId = 'active-event';
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
-      const newEvent: EventDoc = {
+      await setDoc(doc(db, 'events', eventId), {
         id: eventId,
         name: crawlName.trim(),
-        description: `A brand new bar crawl starting at ${new Date(startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+        description: '',
         status: 'active',
         startsAt,
         endsAt,
         createdAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'events', eventId), newEvent);
+      });
 
       const challengeTitles = [
         'Group selfie',
@@ -238,148 +191,62 @@ export default function AdminPage() {
       for (let idx = 0; idx < wizardBars.length; idx++) {
         const barName = wizardBars[idx];
         const barId = barName.toLowerCase().replace(/\s+/g, '-');
-        
         await setDoc(doc(db, 'bars', barId), {
           id: barId,
           name: barName,
           address: `${10 + idx * 12} Market St`,
           description: `Stop #${idx + 1} on the crawl`,
           order: idx + 1,
-          eventId: eventId,
+          eventId,
         });
-
         const challengeTitle = challengeTitles[idx % challengeTitles.length];
         const challengeId = `${barId}-${challengeTitle.toLowerCase().replace(/\s+/g, '-')}`;
-        const challengeDoc: ChallengeDoc = {
+        await setDoc(doc(db, 'challenges', challengeId), {
           id: challengeId,
-          barId: barId,
+          barId,
           title: challengeTitle,
           description: `Complete the ${challengeTitle} at ${barName}!`,
           points: (idx + 1) * 50,
           difficulty: idx % 2 === 0 ? 'easy' : 'medium',
           requiresPhoto: true,
-          eventId: eventId,
-        };
-        await setDoc(doc(db, 'challenges', challengeId), challengeDoc);
-      }
-
-      const funGroupNames = [
-        'Neon Crew',
-        'Midnight Mix',
-        'Velvet Crawlers',
-        'Disco Divas',
-        'Sip Chasers',
-        'Rooftop Rangers',
-        'Pub Pioneers',
-        'Lounge Legends',
-      ];
-
-      for (let i = 0; i < numGroups; i++) {
-        const gName = funGroupNames[i % funGroupNames.length] + (i >= funGroupNames.length ? ` ${Math.floor(i / funGroupNames.length) + 1}` : '');
-        const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-        const groupId = gName.toLowerCase().replace(/\s+/g, '-');
-        
-        await setDoc(doc(db, 'groups', groupId), {
-          id: groupId,
-          name: gName,
-          code,
-          ownerId: 'admin',
-          members: ['admin'],
-          createdAt: new Date().toISOString(),
-          color: ['#f43f5e', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'][i % 6],
-          currentBarIndex: 0,
-          score: 0,
-          eventId: eventId,
+          eventId,
         });
       }
 
       await loadData();
       setShowWizard(false);
-      setMessage(`Successfully initialized new crawl "${crawlName}" with ${wizardBars.length} stops and ${numGroups} groups!`);
+      setMessage(`Initialized "${crawlName}" with ${wizardBars.length} stops. Participants can now create and join groups.`);
     } catch (err) {
-      console.error(err);
       setMessage(err instanceof Error ? err.message : 'Failed to initialize crawl.');
     } finally {
       setIsInitializing(false);
     }
   };
 
-  const removeChallenge = (challengeId: string, title?: string) => {
-    setDeleteCandidate({ id: challengeId, title });
-  };
-
-  const performDeleteChallenge = async () => {
-    if (!deleteCandidate) return;
-    const id = deleteCandidate.id;
-    const ch = challenges.find((c) => c.id === id) as ChallengeDoc | undefined;
-
-    // Optimistically remove from UI and show undo snackbar; schedule permanent delete
-    setChallenges((prev) => prev.filter((c) => c.id !== id));
-    setDeleteCandidate(null);
-
-    const timeoutId = setTimeout(async () => {
-      try {
-        await deleteDoc(doc(db, 'challenges', id));
-        setMessage('Challenge permanently removed.');
-      } catch (err) {
-        console.error(err);
-        setMessage(err instanceof Error ? err.message : 'Failed to remove challenge');
-      } finally {
-        setRecentlyDeleted(null);
-      }
-    }, 8000);
-
-    if (ch) {
-      setRecentlyDeleted({ challenge: ch, timeoutId });
-    } else {
-      // If we didn't have the challenge locally, still schedule deletion but no undo
-      setRecentlyDeleted(null);
-    }
-  };
-
-  const undoDelete = () => {
-    if (!recentlyDeleted) return;
-    clearTimeout(recentlyDeleted.timeoutId);
-    setChallenges((prev) => [recentlyDeleted.challenge, ...prev]);
-    setRecentlyDeleted(null);
-    setMessage('Delete undone.');
-  };
-
-  const endCrawl = async () => {
-    if (!activeEvent) return;
-    try {
-      const updated: EventDoc = { ...activeEvent, status: 'ended', endsAt: new Date().toISOString() };
-      await setDoc(doc(db, 'events', activeEvent.id), updated, { merge: true });
-      setMessage('Crawl ended.');
-      setActiveEvent(null);
-      await loadData();
-    } catch (err) {
-      console.error(err);
-      setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
-    } finally {
-      setEndEventConfirm(false);
-    }
-  };
-
   const handleApprove = async (submissionId: string) => {
     try {
       await approveSubmission(submissionId);
-      setSubmissions((prev) => prev.map((s) => s.id === submissionId ? { ...s, status: 'approved' as const } : s));
-      setMessage('Submission approved.');
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submissionId ? { ...s, status: 'approved' as const } : s)),
+      );
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to approve submission');
+      setMessage(err instanceof Error ? err.message : 'Failed to approve');
     }
   };
 
-  const handleReject = async (submission: (typeof submissions)[number]) => {
+  const handleReject = async (submission: SubmissionDoc) => {
     try {
       await rejectSubmission(submission.id, submission.groupId, submission.pointsAwarded ?? 0);
-      setSubmissions((prev) => prev.map((s) => s.id === submission.id ? { ...s, status: 'rejected' as const } : s));
-      setMessage(`Submission rejected.${submission.pointsAwarded ? ` −${submission.pointsAwarded} pts deducted.` : ''}`);
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submission.id ? { ...s, status: 'rejected' as const } : s)),
+      );
+      setMessage(`Rejected.${submission.pointsAwarded ? ` −${submission.pointsAwarded} pts deducted.` : ''}`);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to reject submission');
+      setMessage(err instanceof Error ? err.message : 'Failed to reject');
     }
   };
+
+  const pendingSubmissions = submissions.filter((s) => s.status === 'pending');
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 bg-slate-950 px-4 py-6 pb-24 text-slate-100">
@@ -388,90 +255,164 @@ export default function AdminPage() {
           <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Admin</p>
           <h1 className="text-2xl font-semibold">Control center</h1>
         </div>
-        <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">Back</Link>
+        <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">
+          Back
+        </Link>
       </div>
 
-      {message ? <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">{message}</div> : null}
+      {message ? (
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+          {message}
+        </div>
+      ) : null}
 
-      {/* Crawls */}
+      {/* Active crawl card or create wizard */}
       <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-pink-500/20 via-brand-500/20 to-violet-500/20 p-6 shadow-glow">
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-violet-300">Crawls</h2>
-            <p className="mt-1 text-sm text-slate-400">Create and manage bar crawl events.</p>
+            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-violet-300">
+              {activeEvent ? activeEvent.name : 'No Active Crawl'}
+            </h2>
+            {activeEvent ? (
+              <p className="mt-1 text-sm text-slate-400">
+                {activeEvent.startsAt ? new Date(activeEvent.startsAt).toLocaleString() : '—'}
+                {activeEvent.endsAt ? ` → ${new Date(activeEvent.endsAt).toLocaleString()}` : ''}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-slate-400">Create a crawl to get started.</p>
+            )}
           </div>
-          {!showWizard && (
+
+          {activeEvent && !editingTimes && (
+            <div className="flex gap-2">
+              <button
+                onClick={openEditTimes}
+                className="rounded-full border border-white/10 bg-slate-900/60 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 transition"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => setEndConfirm(true)}
+                className="rounded-full bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition"
+              >
+                End Crawl
+              </button>
+            </div>
+          )}
+
+          {!activeEvent && !showWizard && (
             <button
               onClick={() => setShowWizard(true)}
-              disabled={isInitializing}
-              className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition duration-200 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-2.5 text-sm font-semibold shadow-md transition text-white"
             >
-              🚀 Make New Bar Crawl
+              🚀 New Bar Crawl
             </button>
           )}
         </div>
 
-        {!showWizard && (
-          <div className="mt-4 space-y-2">
-            {events.length ? events.map((ev) => (
-              <div key={ev.id} className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-slate-900/60 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-semibold">{ev.name}</p>
-                  <p className="text-xs text-slate-400">{ev.status} • {ev.startsAt ? new Date(ev.startsAt).toLocaleString() : 'No start set'}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={() => loadEvent(ev.id)} className="rounded-full border border-white/10 px-3 py-1 text-sm">Edit</button>
-                  {ev.status !== 'active' ? (
-                    <button onClick={() => activateEvent(ev.id)} className="rounded-full bg-emerald-600 px-3 py-1 text-sm text-white">Activate</button>
-                  ) : (
-                    <button onClick={() => { setActiveEvent(ev); setEndEventConfirm(true); }} className="rounded-full bg-rose-500 px-3 py-1 text-sm text-white">End</button>
-                  )}
-                  <button onClick={() => setDeleteEventCandidate(ev)} className="rounded-full border border-white/10 px-3 py-1 text-sm text-rose-300">Delete</button>
-                </div>
-              </div>
-            )) : (
-              <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-3 text-sm text-slate-400">No crawls yet.</div>
-            )}
+        {/* Stops list */}
+        {activeEvent && bars.length > 0 && !editingTimes && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {bars.map((bar, idx) => (
+              <span
+                key={bar.id}
+                className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300"
+              >
+                <span className="text-pink-400 font-semibold mr-1">{idx + 1}.</span>
+                {bar.name}
+              </span>
+            ))}
           </div>
         )}
 
-        {showWizard && (
-          <div className="mt-6 border-t border-white/10 pt-6 space-y-5 animate-fade-in">
+        {/* Inline edit form — name and times only */}
+        {editingTimes && (
+          <div className="mt-5 border-t border-white/10 pt-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">Crawl Event Name</label>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                  Crawl Name
+                </label>
                 <input
-                  value={crawlName}
-                  onChange={(e) => setCrawlName(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 transition text-sm text-white"
-                  placeholder="Saturday Night Crawl"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 text-sm text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">Number of Groups</label>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                  Start Date & Time
+                </label>
                 <input
-                  type="number"
-                  min="1"
-                  max="12"
-                  value={numGroups}
-                  onChange={(e) => setNumGroups(Number(e.target.value))}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 transition text-sm text-white"
+                  type="datetime-local"
+                  value={editStartTime}
+                  onChange={(e) => setEditStartTime(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 text-sm text-white"
                 />
               </div>
+            </div>
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                Duration: {editDurationHours} hrs
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="24"
+                value={editDurationHours}
+                onChange={(e) => setEditDurationHours(Number(e.target.value))}
+                className="w-full accent-pink-500"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={saveTimesEdit}
+                disabled={isSaving}
+                className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-5 py-2.5 text-sm font-semibold text-white hover:from-pink-600 hover:to-violet-600 transition disabled:opacity-50"
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => setEditingTimes(false)}
+                className="rounded-full border border-white/10 bg-slate-900/60 px-5 py-2.5 text-sm text-slate-300 hover:bg-slate-800 transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Create wizard */}
+        {showWizard && !activeEvent && (
+          <div className="mt-6 border-t border-white/10 pt-6 space-y-5">
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                Crawl Name
+              </label>
+              <input
+                value={crawlName}
+                onChange={(e) => setCrawlName(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 text-sm text-white"
+                placeholder="Saturday Night Crawl"
+              />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">Start Date & Time</label>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                  Start Date & Time
+                </label>
                 <input
                   type="datetime-local"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 transition text-sm text-white"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 text-sm text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">Duration (Hours)</label>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                  Duration
+                </label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -481,19 +422,28 @@ export default function AdminPage() {
                     onChange={(e) => setDurationHours(Number(e.target.value))}
                     className="flex-1 accent-pink-500"
                   />
-                  <span className="text-sm font-semibold bg-slate-900 px-3 py-1.5 rounded-lg border border-white/5 w-16 text-center">{durationHours} hrs</span>
+                  <span className="text-sm font-semibold bg-slate-900 px-3 py-1.5 rounded-lg border border-white/5 w-16 text-center">
+                    {durationHours} hrs
+                  </span>
                 </div>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">Route Stops (Bars in sequence)</label>
+              <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                Route Stops
+              </label>
               <div className="flex gap-2 mb-3">
                 <input
                   value={newWizardBar}
                   onChange={(e) => setNewWizardBar(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addWizardBar(); } }}
-                  className="flex-1 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 transition text-sm text-white"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addWizardBar();
+                    }
+                  }}
+                  className="flex-1 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 outline-none focus:border-pink-500 text-sm text-white"
                   placeholder="e.g. Neon Tunnel"
                 />
                 <button
@@ -504,13 +454,15 @@ export default function AdminPage() {
                   Add Stop
                 </button>
               </div>
-
               {wizardBars.length === 0 ? (
-                <p className="text-xs text-amber-300/80 italic">Add at least one stop to launch the crawl.</p>
+                <p className="text-xs text-amber-300/80 italic">Add at least one stop.</p>
               ) : (
                 <div className="flex flex-wrap gap-2 p-3 bg-slate-950/50 rounded-2xl border border-white/5">
                   {wizardBars.map((bar, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-slate-900 border border-white/10 rounded-full pl-3 pr-2 py-1 text-xs text-slate-200">
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 bg-slate-900 border border-white/10 rounded-full pl-3 pr-2 py-1 text-xs text-slate-200"
+                    >
                       <span className="font-semibold text-pink-400">{idx + 1}.</span>
                       <span>{bar}</span>
                       <button
@@ -531,15 +483,14 @@ export default function AdminPage() {
                 type="button"
                 disabled={isInitializing || wizardBars.length === 0}
                 onClick={handleInitializeCrawl}
-                className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-3 font-semibold text-white transition disabled:opacity-50 disabled:cursor-not-allowed text-sm shadow-lg"
+                className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 px-5 py-3 font-semibold text-white transition disabled:opacity-50 text-sm"
               >
-                {isInitializing ? 'Initializing Crawl...' : '🚀 Initialize New Bar Crawl'}
+                {isInitializing ? 'Initializing…' : '🚀 Initialize Bar Crawl'}
               </button>
               <button
                 type="button"
-                disabled={isInitializing}
                 onClick={() => setShowWizard(false)}
-                className="rounded-full border border-white/10 bg-slate-900/60 hover:bg-slate-900 px-5 py-3 text-sm font-semibold transition text-slate-300"
+                className="rounded-full border border-white/10 bg-slate-900/60 px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-900 transition"
               >
                 Cancel
               </button>
@@ -548,156 +499,166 @@ export default function AdminPage() {
         )}
       </section>
 
-      <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-        <h2 className="text-xl font-semibold">Challenges (by bar)</h2>
-        <p className="mt-2 text-sm text-slate-400">View and remove challenges assigned to each bar.</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {bars.map((bar) => {
-            const barChallenges = challenges.filter((c) => c.barId === bar.id);
-            return (
-              <div key={bar.id} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-400">{bar.name}</p>
-                    <h4 className="text-lg font-semibold">{barChallenges.length} challenges</h4>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {barChallenges.length ? barChallenges.map((ch) => (
-                    <div key={ch.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-950/80 p-3">
-                      <div>
-                        <p className="font-semibold">{ch.title}</p>
-                        <p className="text-sm text-slate-400">{ch.points} pts • {ch.id}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => removeChallenge(ch.id)} className="text-sm rounded-full bg-rose-600/10 px-3 py-1 text-rose-300 border border-rose-600/20">Delete</button>
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="rounded-lg border border-dashed border-white/15 bg-slate-900/50 p-3 text-sm text-slate-400">No challenges for this bar.</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <h2 className="mt-6 text-xl font-semibold">Approval queue</h2>
-        <p className="mt-2 text-sm text-slate-400">Points are awarded on submission and deducted on rejection.</p>
-        {submissions.filter((s) => s.status === 'pending').length === 0 ? (
-          <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
-            No pending submissions yet.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {submissions.filter((s) => s.status === 'pending').map((submission) => {
-              const group = groups.find((g) => g.id === submission.groupId);
-              return (
-                <div key={submission.id} className="rounded-2xl bg-slate-900/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{group?.name ?? submission.groupId}</p>
-                      <p className="text-sm text-slate-400">{submission.challengeId} · {submission.barId}</p>
-                      <p className="text-xs text-slate-500">{new Date(submission.createdAt).toLocaleString()}</p>
-                    </div>
-                    {submission.pointsAwarded ? (
-                      <span className="rounded-full bg-yellow-500/15 px-2 py-1 text-xs text-yellow-200">+{submission.pointsAwarded} pts</span>
-                    ) : null}
-                  </div>
-                  {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-40 w-full rounded-2xl object-cover sm:h-48" /> : null}
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(submission.id)}
-                      className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleReject(submission)}
-                      className="flex-1 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 transition"
-                    >
-                      Reject{submission.pointsAwarded ? ` (−${submission.pointsAwarded} pts)` : ''}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {submissions.filter((s) => s.status !== 'pending').length > 0 ? (
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Reviewed</h3>
-            <div className="mt-3 space-y-2">
-              {submissions.filter((s) => s.status !== 'pending').map((submission) => {
+      {/* Approval queue */}
+      {activeEvent && (
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <h2 className="text-xl font-semibold">Approval Queue</h2>
+          <p className="mt-1 text-sm text-slate-400">Points are awarded on submission; deducted on rejection.</p>
+          {pendingSubmissions.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-white/15 bg-slate-900/50 p-4 text-sm text-slate-400">
+              No pending submissions.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {pendingSubmissions.map((submission) => {
                 const group = groups.find((g) => g.id === submission.groupId);
                 return (
-                  <div key={submission.id} className="rounded-2xl bg-slate-900/60 p-4">
+                  <div key={submission.id} className="rounded-2xl bg-slate-900/70 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold">{group?.name ?? submission.groupId}</p>
-                        <p className="text-sm text-slate-400">{submission.challengeId}</p>
+                        <p className="text-sm text-slate-400">
+                          {submission.challengeId} · {submission.barId}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(submission.createdAt).toLocaleString()}
+                        </p>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-xs ${submission.status === 'approved' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-rose-500/15 text-rose-200'}`}>
-                        {submission.status}
-                      </span>
+                      {submission.pointsAwarded ? (
+                        <span className="rounded-full bg-yellow-500/15 px-2 py-1 text-xs text-yellow-200">
+                          +{submission.pointsAwarded} pts
+                        </span>
+                      ) : null}
                     </div>
-                    {submission.photoUrl ? <img src={submission.photoUrl} alt="Submission" className="mt-3 h-20 w-full rounded-2xl object-cover sm:h-24" /> : null}
+                    {submission.photoUrl ? (
+                      <img
+                        src={submission.photoUrl}
+                        alt="Submission"
+                        className="mt-3 h-48 w-full rounded-2xl object-cover"
+                      />
+                    ) : null}
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => handleApprove(submission.id)}
+                        className="flex-1 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleReject(submission)}
+                        className="flex-1 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 transition"
+                      >
+                        Reject{submission.pointsAwarded ? ` (−${submission.pointsAwarded} pts)` : ''}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
-          </div>
-        ) : null}
-      </section>
+          )}
+        </section>
+      )}
 
-      {deleteCandidate ? (
+      {/* Photo gallery grouped by team */}
+      {activeEvent && groups.length > 0 && (
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <h2 className="text-xl font-semibold">Photos by Group</h2>
+          <p className="mt-1 text-sm text-slate-400">Click a group to view their submissions.</p>
+          <div className="mt-4 space-y-2">
+            {groups.map((group) => {
+              const groupSubs = submissions.filter((s) => s.groupId === group.id && s.photoUrl);
+              const isExpanded = expandedGroupId === group.id;
+              return (
+                <div
+                  key={group.id}
+                  className="rounded-2xl border border-white/5 bg-slate-900/60 overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
+                    className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="inline-block w-3 h-3 rounded-full shrink-0"
+                        style={{ background: group.color ?? '#f43f5e' }}
+                      />
+                      <span className="font-semibold">{group.name}</span>
+                      <span className="text-xs text-slate-400">
+                        {groupSubs.length} photo{groupSubs.length !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-xs text-slate-500">· {group.score ?? 0} pts</span>
+                    </div>
+                    <span className="text-slate-400 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="px-4 pb-4">
+                      {groupSubs.length === 0 ? (
+                        <p className="text-sm text-slate-400 italic">No photos yet.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          {groupSubs.map((sub) => (
+                            <div key={sub.id} className="rounded-xl overflow-hidden relative">
+                              <img
+                                src={sub.photoUrl}
+                                alt={sub.challengeId}
+                                className="w-full h-32 object-cover"
+                              />
+                              <div className="absolute bottom-0 inset-x-0 bg-black/60 px-2 py-1 text-xs text-white truncate">
+                                {sub.challengeId}
+                              </div>
+                              <span
+                                className={`absolute top-2 right-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                  sub.status === 'approved'
+                                    ? 'bg-emerald-500/90'
+                                    : sub.status === 'rejected'
+                                    ? 'bg-rose-500/90'
+                                    : 'bg-yellow-500/90'
+                                }`}
+                              >
+                                {sub.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* End crawl confirmation modal */}
+      {endConfirm && activeEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteCandidate(null)} />
+          <div className="absolute inset-0 bg-black/60" onClick={() => setEndConfirm(false)} />
           <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">Delete challenge</h3>
-            <p className="mt-2 text-sm text-slate-400">Are you sure you want to delete <strong>{deleteCandidate.title || deleteCandidate.id}</strong>? This action cannot be undone.</p>
+            <h3 className="text-lg font-semibold">End &amp; delete crawl?</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              This permanently deletes <strong>{activeEvent.name}</strong>, all its bars, challenges,
+              submissions, and groups. Cannot be undone.
+            </p>
             <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setDeleteCandidate(null)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
-              <button onClick={performDeleteChallenge} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Delete</button>
+              <button
+                onClick={() => setEndConfirm(false)}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={endAndDeleteCrawl}
+                className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 transition"
+              >
+                End &amp; Delete
+              </button>
             </div>
           </div>
         </div>
-      ) : null}
-      {endEventConfirm && activeEvent ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setEndEventConfirm(false)} />
-          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">End current crawl</h3>
-            <p className="mt-2 text-sm text-slate-400">Are you sure you want to end the crawl <strong>{activeEvent.name}</strong>? This will stop progression and archive the event.</p>
-            <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setEndEventConfirm(false)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
-              <button onClick={endCrawl} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">End crawl</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {deleteEventCandidate ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteEventCandidate(null)} />
-          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">Delete event</h3>
-            <p className="mt-2 text-sm text-slate-400">Delete <strong>{deleteEventCandidate.name}</strong> and all its data? This will remove bars, challenges, and submissions for this event.</p>
-            <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setDeleteEventCandidate(null)} className="rounded-full border border-white/10 px-4 py-2 text-sm">Cancel</button>
-              <button onClick={() => deleteEvent(deleteEventCandidate.id)} className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white">Delete</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {recentlyDeleted ? (
-        <div className="fixed left-1/2 bottom-6 z-50 -translate-x-1/2">
-          <div className="rounded-full bg-slate-900/95 px-4 py-2 text-sm flex items-center gap-3 border border-white/10">
-            <div className="text-slate-200">Deleted {recentlyDeleted.challenge.title}</div>
-            <button onClick={undoDelete} className="text-sm text-white bg-emerald-600/90 rounded-full px-3 py-1">Undo</button>
-          </div>
-        </div>
-      ) : null}
+      )}
     </main>
   );
 }
