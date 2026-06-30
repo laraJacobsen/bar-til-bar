@@ -32,7 +32,19 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
+
+# Cloudflare R2 (photo uploads) — server-only, do NOT prefix with NEXT_PUBLIC
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET=
+R2_PUBLIC_BASE_URL=
 ```
+
+Photos (challenge submissions and group pictures) are uploaded to a Cloudflare R2 bucket
+via short-lived presigned URLs and served from the bucket's public `r2.dev` domain
+(`R2_PUBLIC_BASE_URL`). The R2 bucket needs public access enabled and a CORS rule allowing
+`PUT` from the app origin (your Vercel domain and `http://localhost:3000`).
 
 ## Deployment
 Deploy to Vercel after connecting the GitHub repository and adding the same environment variables.
