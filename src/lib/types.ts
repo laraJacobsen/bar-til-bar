@@ -45,4 +45,5 @@ export interface SubmissionDoc {
   createdAt: string;
   comment?: string;
   pointsAwarded?: number;
+  eventId?: string;
 }

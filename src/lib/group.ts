@@ -12,6 +12,7 @@ export interface GroupDoc {
   currentBarIndex?: number;
   score?: number;
   pictureUrl?: string;
+  eventId?: string;
 }
 
 export async function createGroup({ name, ownerId, color }: { name: string; ownerId: string; color?: string }) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { uploadToR2 } from '@/lib/upload';
-import { createSubmission, getChallengeById } from '@/lib/firestore';
+import { createSubmission, getChallengeById, getActiveEvent } from '@/lib/firestore';
 import { getUserGroup, adjustGroupScore } from '@/lib/group';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -50,7 +50,10 @@ export function UploadPanel() {
 
     try {
       const challengeId = 'group-selfie';
-      const challenge = await getChallengeById(challengeId);
+      const [challenge, activeEvent] = await Promise.all([
+        getChallengeById(challengeId),
+        getActiveEvent(),
+      ]);
       const pointsAwarded = challenge?.points ?? 50;
 
       const photoUrl = await uploadToR2(file, {
@@ -65,6 +68,7 @@ export function UploadPanel() {
         challengeId,
         photoUrl,
         pointsAwarded,
+        eventId: activeEvent?.id,
       });
 
       await adjustGroupScore(groupId, pointsAwarded);

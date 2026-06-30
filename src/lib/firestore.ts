@@ -103,7 +103,7 @@ export async function getChallengeById(challengeId: string): Promise<ChallengeDo
   return { id: snap.id, ...(snap.data() as Omit<ChallengeDoc, 'id'>) };
 }
 
-export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string; pointsAwarded?: number }) {
+export async function createSubmission(input: { groupId: string; barId: string; challengeId: string; photoUrl: string; pointsAwarded?: number; eventId?: string }) {
   return addDoc(collection(db, 'submissions'), {
     ...input,
     status: 'pending',

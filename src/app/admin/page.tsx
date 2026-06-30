@@ -59,8 +59,9 @@ export default function AdminPage() {
     setActiveEvent(active);
     setEvents(allEvents);
     setBars(active ? loadedBars.filter((b) => ((b as any).eventId === active.id)) : loadedBars);
-    setGroups(groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) })));
-    setSubmissions(allSubs);
+    const loadedGroups = groupsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<GroupDoc, 'id'>) }));
+    setGroups(active ? loadedGroups.filter((g) => g.eventId === active.id || !g.eventId) : loadedGroups);
+    setSubmissions(active ? allSubs.filter((s) => s.eventId === active.id || !s.eventId) : allSubs);
     const loadedChallenges = challengesSnap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
     setChallenges(active ? loadedChallenges.filter((c) => ((c as any).eventId === active.id)) : loadedChallenges);
   };
@@ -266,6 +267,7 @@ export default function AdminPage() {
           color: ['#f43f5e', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'][i % 6],
           currentBarIndex: 0,
           score: 0,
+          eventId: eventId,
         });
       }
 
