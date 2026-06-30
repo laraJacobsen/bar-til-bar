@@ -41,8 +41,8 @@ export default function AdminPage() {
   interface WizardChallenge { id: string; barIndex: number; title: string; description: string; difficulty: 'easy' | 'medium' | 'hard' }
   const DIFF_PTS = { easy: 50, medium: 100, hard: 150 } as const;
   const [wizardChallenges, setWizardChallenges] = useState<WizardChallenge[]>([]);
-  const [addingChallenge, setAddingChallenge] = useState(false);
-  const [newChallenge, setNewChallenge] = useState<Omit<WizardChallenge, 'id'>>({ barIndex: 0, title: '', description: '', difficulty: 'easy' });
+  const [addingChallengeForBar, setAddingChallengeForBar] = useState<number | null>(null);
+  const [newChallenge, setNewChallenge] = useState<{ title: string; description: string; difficulty: 'easy' | 'medium' | 'hard' }>({ title: '', description: '', difficulty: 'easy' });
 
   // End crawl confirmation
   const [endConfirm, setEndConfirm] = useState(false);
@@ -544,73 +544,40 @@ export default function AdminPage() {
               {wizardBars.length === 0 ? (
                 <p className="text-xs text-amber-300/80 italic">Add at least one stop.</p>
               ) : (
-                <div className="flex flex-wrap gap-2 p-3 bg-slate-950/50 rounded-2xl border border-white/5">
-                  {wizardBars.map((bar, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 bg-slate-900 border border-white/10 rounded-full pl-3 pr-2 py-1 text-xs text-slate-200"
-                    >
-                      <span className="font-semibold text-pink-400">{idx + 1}.</span>
-                      <span>{bar}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeWizardBar(idx)}
-                        className="text-slate-400 hover:text-rose-400 transition ml-1 font-bold w-4 h-4 flex items-center justify-center rounded-full hover:bg-white/10"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Challenges section */}
-            {wizardBars.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                    Challenges
-                  </label>
-                  <p className="text-xs text-slate-600">easy 50 · medium 100 · hard 150 pts</p>
-                </div>
-
-                {/* Per-bar challenge summary */}
-                <div className="flex flex-col gap-2 mb-3">
+                <div className="flex flex-col gap-2">
                   {wizardBars.map((bar, barIdx) => {
                     const bcs = wizardChallenges.filter((c) => c.barIndex === barIdx);
+                    const isAdding = addingChallengeForBar === barIdx;
                     return (
-                      <div key={barIdx} className="rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
-                        <div className="flex items-center justify-between gap-2 mb-1">
+                      <div key={barIdx} className="rounded-2xl border border-white/8 bg-slate-900/60 p-4">
+                        {/* Bar header */}
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs font-bold text-pink-400 shrink-0">{barIdx + 1}.</span>
-                            <span className="text-sm font-medium truncate">{bar}</span>
+                            <span className="text-sm font-bold text-pink-400 shrink-0">{barIdx + 1}.</span>
+                            <span className="font-medium truncate">{bar}</span>
                           </div>
-                          <div className="flex gap-1 shrink-0">
-                            {(['easy', 'medium', 'hard'] as const).map((d) => {
-                              const has = bcs.some((c) => c.difficulty === d);
-                              return (
-                                <span key={d} className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
-                                  d === 'easy'   ? has ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-slate-700'
-                                  : d === 'medium' ? has ? 'bg-yellow-500/20 text-yellow-300' : 'bg-white/5 text-slate-700'
-                                  : has ? 'bg-rose-500/20 text-rose-300' : 'bg-white/5 text-slate-700'
-                                }`}>
-                                  {d[0]}
-                                </span>
-                              );
-                            })}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              removeWizardBar(barIdx);
+                              setWizardChallenges((prev) => prev.filter((c) => c.barIndex !== barIdx).map((c) => ({ ...c, barIndex: c.barIndex > barIdx ? c.barIndex - 1 : c.barIndex })));
+                              if (addingChallengeForBar === barIdx) setAddingChallengeForBar(null);
+                            }}
+                            className="shrink-0 text-slate-600 hover:text-rose-400 transition font-bold text-lg leading-none"
+                          >×</button>
                         </div>
+
+                        {/* Challenges list */}
                         {bcs.length > 0 && (
-                          <div className="mt-2 space-y-1">
+                          <div className="mt-3 space-y-1.5">
                             {bcs.map((ch) => (
-                              <div key={ch.id} className="flex items-center gap-2 text-xs text-slate-400">
-                                <span className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${
+                              <div key={ch.id} className="flex items-center gap-2 text-xs">
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${
                                   ch.difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-400'
                                   : ch.difficulty === 'medium' ? 'bg-yellow-500/15 text-yellow-400'
                                   : 'bg-rose-500/15 text-rose-400'
-                                }`}>{DIFF_PTS[ch.difficulty]}pts</span>
-                                <span className="truncate flex-1">{ch.title}</span>
+                                }`}>{ch.difficulty} · {DIFF_PTS[ch.difficulty]}pts</span>
+                                <span className="truncate flex-1 text-slate-300">{ch.title}</span>
                                 <button
                                   type="button"
                                   onClick={() => setWizardChallenges((prev) => prev.filter((c) => c.id !== ch.id))}
@@ -620,104 +587,81 @@ export default function AdminPage() {
                             ))}
                           </div>
                         )}
+
+                        {/* Inline add-challenge form */}
+                        {isAdding ? (
+                          <div className="mt-3 space-y-2.5 border-t border-white/8 pt-3">
+                            <div className="flex gap-1.5">
+                              {(['easy', 'medium', 'hard'] as const).map((d) => (
+                                <button
+                                  key={d}
+                                  type="button"
+                                  onClick={() => setNewChallenge((p) => ({ ...p, difficulty: d }))}
+                                  className={`flex-1 rounded-xl py-1.5 text-xs font-semibold transition ${
+                                    newChallenge.difficulty === d
+                                      ? d === 'easy' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                        : d === 'medium' ? 'bg-yellow-500/25 text-yellow-300 border border-yellow-500/40'
+                                        : 'bg-rose-500/25 text-rose-300 border border-rose-500/40'
+                                      : 'bg-white/5 text-slate-500 border border-transparent'
+                                  }`}
+                                >
+                                  {d} · {DIFF_PTS[d]}pts
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              value={newChallenge.title}
+                              onChange={(e) => setNewChallenge((p) => ({ ...p, title: e.target.value }))}
+                              placeholder="Challenge title"
+                              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
+                            />
+                            <input
+                              value={newChallenge.description}
+                              onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))}
+                              placeholder="What do they need to do?"
+                              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={!newChallenge.title.trim()}
+                                onClick={() => {
+                                  if (!newChallenge.title.trim()) return;
+                                  setWizardChallenges((prev) => [
+                                    ...prev,
+                                    { ...newChallenge, barIndex: barIdx, id: `${barIdx}-${newChallenge.difficulty}-${Date.now()}` },
+                                  ]);
+                                  setNewChallenge({ title: '', description: '', difficulty: 'easy' });
+                                  setAddingChallengeForBar(null);
+                                }}
+                                className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50 transition"
+                              >
+                                Add
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setAddingChallengeForBar(null); setNewChallenge({ title: '', description: '', difficulty: 'easy' }); }}
+                                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-400 transition hover:bg-white/10"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setAddingChallengeForBar(barIdx); setNewChallenge({ title: '', description: '', difficulty: 'easy' }); }}
+                            className="mt-3 w-full rounded-xl border border-dashed border-white/10 py-2 text-xs text-slate-500 hover:border-pink-500/30 hover:text-pink-400 transition"
+                          >
+                            + Add challenge
+                          </button>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-
-                {/* Add challenge form */}
-                {addingChallenge ? (
-                  <div className="rounded-2xl border border-pink-500/20 bg-pink-500/5 p-4 space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Bar</label>
-                        <select
-                          value={newChallenge.barIndex}
-                          onChange={(e) => setNewChallenge((p) => ({ ...p, barIndex: Number(e.target.value) }))}
-                          className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none"
-                        >
-                          {wizardBars.map((bar, i) => (
-                            <option key={i} value={i}>{i + 1}. {bar}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Difficulty</label>
-                        <div className="flex gap-2">
-                          {(['easy', 'medium', 'hard'] as const).map((d) => (
-                            <button
-                              key={d}
-                              type="button"
-                              onClick={() => setNewChallenge((p) => ({ ...p, difficulty: d }))}
-                              className={`flex-1 rounded-xl py-2 text-xs font-semibold transition ${
-                                newChallenge.difficulty === d
-                                  ? d === 'easy' ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
-                                    : d === 'medium' ? 'bg-yellow-500/30 text-yellow-300 border border-yellow-500/40'
-                                    : 'bg-rose-500/30 text-rose-300 border border-rose-500/40'
-                                  : 'bg-white/5 text-slate-500 border border-transparent'
-                              }`}
-                            >
-                              {d}<br /><span className="text-[10px] opacity-70">{DIFF_PTS[d]}pts</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Title</label>
-                      <input
-                        value={newChallenge.title}
-                        onChange={(e) => setNewChallenge((p) => ({ ...p, title: e.target.value }))}
-                        placeholder="e.g. Group selfie"
-                        className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1">Description</label>
-                      <input
-                        value={newChallenge.description}
-                        onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))}
-                        placeholder="What do they need to do?"
-                        className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={!newChallenge.title.trim()}
-                        onClick={() => {
-                          if (!newChallenge.title.trim()) return;
-                          setWizardChallenges((prev) => [
-                            ...prev,
-                            { ...newChallenge, id: `${newChallenge.barIndex}-${newChallenge.difficulty}-${Date.now()}` },
-                          ]);
-                          setNewChallenge((p) => ({ ...p, title: '', description: '' }));
-                          setAddingChallenge(false);
-                        }}
-                        className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 transition"
-                      >
-                        Add challenge
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAddingChallenge(false)}
-                        className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-400 transition hover:bg-white/10"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => { setAddingChallenge(true); setNewChallenge((p) => ({ ...p, barIndex: 0 })); }}
-                    className="w-full rounded-2xl border border-dashed border-white/10 py-2.5 text-sm text-slate-500 hover:border-pink-500/30 hover:text-pink-400 transition"
-                  >
-                    + Add challenge
-                  </button>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="flex gap-3 pt-3">
               <button
