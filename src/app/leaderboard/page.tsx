@@ -158,7 +158,7 @@ export default function LeaderboardPage() {
             return (
               <Link
                 key={item.label}
-                href={item.href as string}
+                href={item.href as any}
                 className={`flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 transition hover:bg-white/10 ${
                   isActive ? 'text-pink-400' : 'text-slate-300'
                 }`}
