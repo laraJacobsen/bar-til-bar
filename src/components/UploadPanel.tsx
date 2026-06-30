@@ -2,115 +2,174 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { uploadToR2 } from '@/lib/upload';
-import { createSubmission, getChallengeById, getActiveEvent } from '@/lib/firestore';
-import { getUserGroup, adjustGroupScore } from '@/lib/group';
+import { createSubmission, getActiveEvent } from '@/lib/firestore';
+import { getGroups, getUserGroup, adjustGroupScore } from '@/lib/group';
 import { useAuth } from '@/components/AuthProvider';
 
-type Status = { type: 'success' | 'error'; message: string } | null;
+interface UploadPanelProps {
+  challengeId: string;
+  barId: string;
+  pointsAwarded: number;
+  onSuccess?: () => void;
+}
 
-export function UploadPanel() {
+export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: UploadPanelProps) {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<Status>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
 
-  // Submissions must be filed under the group's document id (what the admin queue
-  // matches on), not the user's uid. Resolve the user's group up front.
+  // Resolve the event group — getUserGroup returns the first group regardless
+  // of eventId, so we prefer whichever event group the user is actually in.
   useEffect(() => {
-    if (user?.uid) {
-      getUserGroup(user.uid).then((group) => {
-        setGroupId(group?.id ?? null);
-        setGroupName(group?.name ?? null);
-      });
-    } else {
-      setGroupId(null);
-    }
+    if (!user?.uid) { setGroupId(null); return; }
+    const resolve = async () => {
+      const [activeEvent, rawGroup, allGroups] = await Promise.all([
+        getActiveEvent(),
+        getUserGroup(user.uid),
+        getGroups(),
+      ]);
+      const eventGroups = activeEvent
+        ? allGroups.filter((g) => g.eventId === activeEvent.id)
+        : [];
+      const resolved =
+        eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
+      setGroupId(resolved?.id ?? null);
+      setGroupName(resolved?.name ?? null);
+    };
+    resolve();
   }, [user]);
 
   const clearSelection = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(null);
     setPreviewUrl('');
+    setConfirming(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextFile = event.target.files?.[0];
-    if (!nextFile) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.files?.[0];
+    if (!next) return;
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setStatus(null);
-    setFile(nextFile);
-    setPreviewUrl(URL.createObjectURL(nextFile));
+    setError('');
+    setFile(next);
+    setPreviewUrl(URL.createObjectURL(next));
   };
 
   const handleSubmit = async () => {
     if (!file || !user || !groupId) return;
     setLoading(true);
-    setStatus(null);
-
+    setError('');
     try {
-      const challengeId = 'group-selfie';
-      const [challenge, activeEvent] = await Promise.all([
-        getChallengeById(challengeId),
+      const [photoUrl, activeEvent] = await Promise.all([
+        uploadToR2(file, { kind: 'submission', groupId, challengeId }),
         getActiveEvent(),
       ]);
-      const pointsAwarded = challenge?.points ?? 50;
-
-      const photoUrl = await uploadToR2(file, {
-        kind: 'submission',
-        groupId,
-        challengeId,
-      });
-
       await createSubmission({
         userId: user.uid,
         groupId,
         groupName: groupName ?? undefined,
-        barId: 'north-star',
+        barId,
         challengeId,
         photoUrl,
         pointsAwarded,
         eventId: activeEvent?.id,
       });
-
       await adjustGroupScore(groupId, pointsAwarded);
-
       clearSelection();
-      setStatus({ type: 'success', message: `Photo submitted! +${pointsAwarded} pts added to your group.` });
-    } catch (error) {
-      console.error('Error uploading submission:', error);
-      setStatus({ type: 'error', message: 'Upload failed. Please check your connection and try again.' });
+      setDone(true);
+      onSuccess?.();
+    } catch (err) {
+      console.error(err);
+      setError('Upload failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  if (done) {
+    return (
+      <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+        ✓ Submitted! +{pointsAwarded} pts added to your group.
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-      <h2 className="text-xl font-semibold">Upload proof</h2>
-      <p className="mt-2 text-sm text-slate-400">Photos are stored in Cloudflare R2 and reviewed by an admin.</p>
-      <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} disabled={loading} className="mt-4 w-full rounded-2xl border border-white/10 bg-slate-900/70 p-3" />
-      {previewUrl ? (
-        <div className="relative mt-4">
-          <img src={previewUrl} alt="Upload preview" className="h-40 w-full rounded-2xl object-cover sm:h-48" />
-          <button type="button" onClick={clearSelection} disabled={loading} className="absolute right-2 top-2 rounded-full bg-slate-950/80 px-3 py-1 text-sm font-medium text-white backdrop-blur">
+    <div className="mt-3 space-y-3">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        disabled={loading}
+        className="w-full rounded-2xl border border-white/10 bg-slate-900/70 p-3 text-sm text-slate-300"
+      />
+      {previewUrl && (
+        <div className="relative">
+          <img src={previewUrl} alt="Preview" className="h-40 w-full rounded-2xl object-cover" />
+          <button
+            type="button"
+            onClick={clearSelection}
+            disabled={loading}
+            className="absolute right-2 top-2 rounded-full bg-slate-950/80 px-3 py-1 text-xs font-medium text-white backdrop-blur"
+          >
             Remove
           </button>
         </div>
-      ) : null}
-      <button onClick={handleSubmit} disabled={!file || loading || !groupId} className="mt-4 w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 font-semibold disabled:opacity-50">
-        {loading ? 'Uploading…' : 'Submit photo'}
-      </button>
-      {!groupId ? (
-        <p className="mt-2 text-center text-sm text-slate-400">Join a group to submit.</p>
-      ) : null}
-      {status ? (
-        <p className={`mt-3 text-sm ${status.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>{status.message}</p>
-      ) : null}
+      )}
+      {error && <p className="text-xs text-rose-300">{error}</p>}
+
+      {confirming ? (
+        <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 space-y-3">
+          <p className="text-sm font-semibold text-white">Submit this photo?</p>
+          <p className="text-xs text-slate-400">
+            This will add <span className="text-pink-300 font-semibold">+{pointsAwarded} pts</span> to your group.
+          </p>
+          <p className="text-xs text-amber-300/80 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+            ⚠ Your group can only submit once per challenge. This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              disabled={loading}
+              className="flex-1 rounded-full border border-white/10 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+            >
+              Go back
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={loading}
+              className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-70 transition"
+            >
+              {loading ? 'Uploading…' : 'Yes, submit'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          disabled={!file || !groupId}
+          className="w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition"
+        >
+          Submit photo · +{pointsAwarded} pts
+        </button>
+      )}
+
+      {!groupId && (
+        <p className="text-center text-xs text-slate-500">Join a group to submit.</p>
+      )}
     </div>
   );
 }
