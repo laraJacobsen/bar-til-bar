@@ -60,7 +60,7 @@ export async function recalculateSchedule(eventId: string): Promise<void> {
     getDocs(query(collection(db, 'bars'), where('eventId', '==', eventId))),
   ]);
 
-  const groups = groupsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as GroupDoc) }));
+  const groups = groupsSnap.docs.map((d) => ({ ...(d.data() as GroupDoc), id: d.id }));
   const numBars = barsSnap.size;
   if (groups.length === 0 || numBars === 0) return;
 
