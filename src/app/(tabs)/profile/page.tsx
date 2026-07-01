@@ -7,6 +7,7 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { LogOut, ShieldCheck } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { InstallApp } from '@/components/InstallApp';
 import { getActiveEvent, getUserCrawlArchives } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { CrawlArchive, SubmissionDoc } from '@/lib/types';
@@ -111,6 +112,8 @@ export default function ProfilePage() {
           </div>
         </div>
       </section>
+
+      <InstallApp />
 
       {/* Account actions */}
       {archives.length > 0 && (
