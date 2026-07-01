@@ -42,7 +42,8 @@ service cloud.firestore {
     }
 
     // Submissions: you can only create your own; approvals/deletions stay admin-only
-    // so scoring can't be trivially forged.
+    // so scoring can't be trivially forged. Any signed-in user may toggle only the
+    // `likedBy` field (photo reactions).
     match /submissions/{submissionId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null &&
