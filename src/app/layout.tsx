@@ -6,6 +6,15 @@ export const metadata: Metadata = {
   title: 'Bar Til Bar',
   description: 'A playful mobile-first bar crawl companion app.',
   manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Bar Til Bar',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/icon-192.png',
+  },
 };
 
 export const viewport: Viewport = {
