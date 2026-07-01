@@ -91,8 +91,9 @@ export function PullToRefresh() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center"
+      className="pointer-events-none fixed inset-x-0 z-40 flex justify-center"
       style={{
+        top: 'env(safe-area-inset-top)',
         transform: `translateY(${Math.max(0, pullDistance - 50)}px)`,
         opacity,
         transition: tracking.current ? 'none' : 'transform 250ms ease-out, opacity 250ms ease-out',

@@ -18,7 +18,10 @@ export default function TabsLayout({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <div className="mx-auto flex max-w-5xl px-2 py-2">
           {navItems.map((item) => {
             const Icon = item.icon;
