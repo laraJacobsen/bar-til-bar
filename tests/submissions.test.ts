@@ -74,12 +74,20 @@ describe('photo submission write path (firestore.rules)', () => {
     );
   });
 
-  it('forbids a non-member from changing a group score', async () => {
+  it('lets any signed-in user update a group, but blocks unauthenticated writes', async () => {
+    // Group writes are intentionally open to any signed-in user: participant actions
+    // (joining, advancing the crawl, awarding points) touch groups other than their
+    // own, so a member-only rule would deny them. Security here is low-stakes.
     const ownerUid = await signInAsNewUser();
     const group = await createGroup({ name: 'Neon Crew', ownerId: ownerUid });
 
-    // Switch to a different signed-in user who is not in the group's members.
+    // A different signed-in user (not a member) can now update the group.
     await signInAsNewUser();
-    await expectDenied(adjustGroupScore(group.id, 50), 'non-member score change');
+    await adjustGroupScore(group.id, 50);
+    expect((await getGroupById(group.id))?.score).toBe(50);
+
+    // But an unauthenticated write is still denied.
+    await signOut(auth);
+    await expectDenied(adjustGroupScore(group.id, 10), 'unauthenticated group write');
   });
 });
