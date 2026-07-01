@@ -91,6 +91,7 @@ export default function HomePage() {
   const [allGroups, setAllGroups] = useState<GroupDoc[]>(homeCache.allGroups);
   const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) { router.replace('/login'); return; }
@@ -126,10 +127,20 @@ export default function HomePage() {
       setCurrentGroup(resolvedGroup);
       setAllGroups(eventGroups);
       setBars(eventBars);
+      setDataLoaded(true);
     };
 
     load();
   }, [loading, router, user]);
+
+  // Onboarding guard: an authenticated user who never finished the flow (no completion
+  // flag, not an admin, and no group in this event) is sent back into it to resume.
+  // Legacy users who already have a group predate the flag and are treated as done.
+  useEffect(() => {
+    if (loading || !user || dbUser === null || !dataLoaded) return;
+    const onboarded = dbUser.onboardingComplete || dbUser.role === 'admin' || !!currentGroup;
+    if (!onboarded) router.replace('/login');
+  }, [loading, user, dbUser, dataLoaded, currentGroup, router]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
