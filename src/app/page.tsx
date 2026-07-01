@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Home, Target, Images, Trophy, User } from 'lucide-react';
+import { Home, Target, Images, Trophy, User, MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
@@ -38,6 +38,16 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 
 function fmtDist(km: number): string {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
+function mapsUrl(bar: BarDoc): string | null {
+  if (bar.lat != null && bar.lng != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${bar.lat},${bar.lng}`;
+  }
+  if (bar.address) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bar.address)}`;
+  }
+  return null;
 }
 
 // Derives the current slot and countdown from the event schedule — no Firestore
@@ -328,6 +338,17 @@ export default function HomePage() {
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
               <p className="font-semibold text-white mt-0.5">{currentBar?.name ?? '—'}</p>
+              {currentBar && mapsUrl(currentBar) && (
+                <a
+                  href={mapsUrl(currentBar)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-fit items-center gap-1 text-xs text-pink-300 hover:text-pink-200 transition"
+                >
+                  <MapPin className="h-3 w-3" />
+                  Get directions
+                </a>
+              )}
               <p className="text-xs text-slate-500 mt-0.5">Stop {currentSlot + 1} of {orderedBars.length}</p>
               {nextBar && walkToNextMin != null && (
                 <p className={`text-xs mt-1.5 font-medium ${
@@ -406,6 +427,7 @@ export default function HomePage() {
                   userLocation && bar.lat != null && bar.lng != null
                     ? haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng)
                     : null;
+                const barUrl = mapsUrl(bar);
 
                 return (
                   <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-4 last:pb-0">
@@ -436,16 +458,30 @@ export default function HomePage() {
                         <p className={`font-semibold leading-snug ${isDone ? 'text-slate-500' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
                           {bar.name}
                         </p>
-                        {isCurrent && (
-                          <span className="shrink-0 rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
-                            Now
-                          </span>
-                        )}
-                        {isDone && (
-                          <svg className="h-4 w-4 shrink-0 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
+                        <div className="flex shrink-0 items-center gap-2">
+                          {barUrl && !isDone && (
+                            <a
+                              href={barUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-slate-500 hover:text-pink-300 transition"
+                              aria-label={`Directions to ${bar.name}`}
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {isCurrent && (
+                            <span className="rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
+                              Now
+                            </span>
+                          )}
+                          {isDone && (
+                            <svg className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
