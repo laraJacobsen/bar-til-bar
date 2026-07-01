@@ -328,7 +328,7 @@ export default function HomePage() {
               </div>
             </Link>
           ) : event ? (
-            <GroupJoinCreate eventId={event.id} userId={user.uid} joinOnly={!!event.started} onSuccess={handleGroupJoined} />
+            <GroupJoinCreate eventId={event.id} userId={user.uid} onSuccess={handleGroupJoined} />
           ) : (
             <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-500">
               No group yet — get the crawl code from your organiser.
