@@ -42,6 +42,20 @@ function SummaryContent() {
         } else {
           const [event, groups, bars] = await Promise.all([getActiveEvent(), getGroups(), getBars()]);
           if (!event) return;
+      try {
+        if (archiveId) {
+          const archive: CrawlArchive | null = await getCrawlArchive(archiveId);
+          if (archive) {
+            setData({
+              eventName: archive.eventName,
+              groups: [...archive.groups].sort((a, b) => b.score - a.score),
+              submissions: archive.submissions,
+              bars: [...archive.bars].sort((a, b) => a.order - b.order),
+            });
+          }
+        } else {
+          const [event, groups, bars] = await Promise.all([getActiveEvent(), getGroups(), getBars()]);
+          if (!event) return;
 
           const eventGroups = groups
             .filter((g) => g.eventId === event.id)
@@ -49,7 +63,19 @@ function SummaryContent() {
           const eventBars = bars
             .filter((b) => (b as any).eventId === event.id)
             .sort((a, b) => a.order - b.order);
+          const eventGroups = groups
+            .filter((g) => g.eventId === event.id)
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+          const eventBars = bars
+            .filter((b) => (b as any).eventId === event.id)
+            .sort((a, b) => a.order - b.order);
 
+          const subsSnap = await getDocs(
+            query(collection(db, 'submissions'), where('status', 'in', ['pending', 'approved', 'rejected'])),
+          );
+          const allSubs = subsSnap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((s: any) => !s.eventId || s.eventId === event.id);
           const subsSnap = await getDocs(
             query(collection(db, 'submissions'), where('status', 'in', ['pending', 'approved', 'rejected'])),
           );
@@ -65,8 +91,8 @@ function SummaryContent() {
           });
         }
       } catch (err) {
-        // On any failure (e.g. a denied read) fall through to "No crawl data found"
-        // instead of spinning on the loading state forever.
+        // On any failure (e.g. a denied read) fall through to the "No crawl data
+        // found" state instead of spinning forever.
         console.error('Failed to load summary', err);
       } finally {
         setLoading(false);
