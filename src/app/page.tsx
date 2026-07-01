@@ -47,8 +47,8 @@ function useSchedule(
   startMs: number | null,
   endMs: number | null,
   numSlots: number,
-): { slot: number; countdown: string; isWarning: boolean } {
-  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false });
+): { slot: number; countdown: string; isWarning: boolean; remainingMs: number } {
+  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false, remainingMs: 0 });
 
   useEffect(() => {
     if (!startMs || !endMs || numSlots === 0) return;
@@ -67,6 +67,7 @@ function useSchedule(
         slot,
         countdown: remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
         isWarning,
+        remainingMs: remaining,
       });
     };
 
@@ -137,6 +138,7 @@ export default function HomePage() {
   // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
   const lastEventIdRef = useRef<string | null>(null);
+  const notifiedForSlot = useRef<number>(-1);
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(
@@ -185,7 +187,7 @@ export default function HomePage() {
 
   // Time-based schedule: slot advances automatically when the slot boundary
   // passes — no Firestore write required. isWarning fires at 10 min remaining.
-  const { slot: liveSlot, countdown, isWarning } = useSchedule(
+  const { slot: liveSlot, countdown, isWarning, remainingMs } = useSchedule(
     event?.started ? startMs : null,
     event?.started ? endMs : null,
     orderedBars.length,
@@ -201,6 +203,55 @@ export default function HomePage() {
       (g) => g.id !== currentGroup?.id && g.barSequence?.[slot] === myBar,
     );
   };
+
+  // Leave-time helpers (walking at ~5 km/h = 12 min/km)
+  const nextBar = orderedBars[currentSlot + 1] ?? null;
+  const distToNextKm =
+    userLocation && nextBar?.lat != null && nextBar?.lng != null
+      ? haversineKm(userLocation.lat, userLocation.lng, nextBar.lat, nextBar.lng)
+      : null;
+  const walkToNextMin = distToNextKm != null ? Math.ceil(distToNextKm * 12) : null;
+  const leaveInMin =
+    walkToNextMin != null && event?.started
+      ? Math.floor((remainingMs - walkToNextMin * 60_000) / 60_000)
+      : null;
+
+  // Request notification permission once the crawl goes live
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!event?.started || !('Notification' in window)) return;
+    if (Notification.permission === 'default') Notification.requestPermission();
+  }, [event?.started]);
+
+  // Schedule a "leave now" notification timed to the walking distance to the next bar
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!event?.started || !startMs || !msPerStop) return;
+    const next = orderedBars[currentSlot + 1];
+    if (!next || next.lat == null || next.lng == null || !userLocation) return;
+    if (notifiedForSlot.current === currentSlot) return;
+
+    const distKm = haversineKm(userLocation.lat, userLocation.lng, next.lat, next.lng);
+    const walkMs = Math.ceil(distKm * 12) * 60_000;
+    const slotEndMs = startMs + (currentSlot + 1) * msPerStop;
+    const delay = slotEndMs - walkMs - Date.now();
+
+    const fire = () => {
+      if (notifiedForSlot.current === currentSlot) return;
+      notifiedForSlot.current = currentSlot;
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`Head to ${next.name}! 🚶`, {
+          body: `${Math.ceil(distKm * 12)} min walk — leave now to arrive on time.`,
+        });
+      }
+    };
+
+    if (delay <= 0) { fire(); return; }
+    const timer = setTimeout(fire, delay);
+    return () => clearTimeout(timer);
+  // notifiedForSlot is a ref — intentionally excluded from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSlot, event?.started, userLocation, orderedBars, startMs, msPerStop]);
 
   if (loading || !user) {
     return (
@@ -278,6 +329,17 @@ export default function HomePage() {
               <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
               <p className="font-semibold text-white mt-0.5">{currentBar?.name ?? '—'}</p>
               <p className="text-xs text-slate-500 mt-0.5">Stop {currentSlot + 1} of {orderedBars.length}</p>
+              {nextBar && walkToNextMin != null && (
+                <p className={`text-xs mt-1.5 font-medium ${
+                  leaveInMin != null && leaveInMin <= 0 ? 'text-rose-400' : 'text-slate-400'
+                }`}>
+                  {leaveInMin != null && leaveInMin <= 0
+                    ? `Head to ${nextBar.name} now! (${walkToNextMin} min walk)`
+                    : leaveInMin != null
+                    ? `Leave in ${leaveInMin}m · ${walkToNextMin} min walk to ${nextBar.name}`
+                    : `${walkToNextMin} min walk to ${nextBar.name}`}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Time left</p>
@@ -340,6 +402,10 @@ export default function HomePage() {
                 const isCurrent = idx === currentSlot;
                 const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
                 const meetingGroups = meetingGroupsAtSlot(idx);
+                const distKm =
+                  userLocation && bar.lat != null && bar.lng != null
+                    ? haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng)
+                    : null;
 
                 return (
                   <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-4 last:pb-0">
@@ -389,9 +455,9 @@ export default function HomePage() {
                               {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
                             </p>
                           )}
-                          {userLocation && bar.lat !== undefined && bar.lng !== undefined && (
+                          {distKm != null && (
                             <span className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-500'}`}>
-                              · {fmtDist(haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng))}
+                              · {fmtDist(distKm)} (~{Math.ceil(distKm * 12)} min walk)
                             </span>
                           )}
                         </div>
