@@ -49,6 +49,7 @@ export interface SubmissionDoc {
   comment?: string;
   pointsAwarded?: number;
   eventId?: string;
+  likedBy?: string[];
 }
 
 export interface CrawlArchiveGroup {
@@ -68,6 +69,7 @@ export interface CrawlArchiveSubmission {
   photoUrl?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   pointsAwarded?: number | null;
+  likedBy?: string[] | null;
 }
 
 export interface CrawlArchiveBar {
