@@ -1,6 +1,6 @@
 import { addDoc, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
+import type { BarDoc, ChallengeDoc, CrawlArchive, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export async function seedDemoData() {
   const eventsSnap = await getDocs(collection(db, 'events'));
@@ -142,4 +142,72 @@ export async function rejectSubmission(submissionId: string, groupId: string, po
 export async function getAllSubmissions(): Promise<SubmissionDoc[]> {
   const snapshot = await getDocs(collection(db, 'submissions'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
+}
+
+export async function archiveCrawl(eventId: string, eventName: string): Promise<void> {
+  const [groupsSnap, barsSnap, allSubs] = await Promise.all([
+    getDocs(collection(db, 'groups')),
+    getDocs(collection(db, 'bars')),
+    getAllSubmissions(),
+  ]);
+
+  const groups = groupsSnap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((g: any) => g.eventId === eventId || !g.eventId);
+
+  const bars = barsSnap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((b: any) => b.eventId === eventId);
+
+  const groupIds = new Set(groups.map((g: any) => g.id as string));
+  const submissions = allSubs.filter(
+    (s) => s.eventId === eventId || (!s.eventId && groupIds.has(s.groupId)),
+  );
+  const memberIds = Array.from(new Set(groups.flatMap((g: any) => (g.members as string[]) ?? [])));
+
+  await setDoc(doc(db, 'crawlArchives', eventId), {
+    eventId,
+    eventName,
+    endedAt: new Date().toISOString(),
+    memberIds,
+    groups: groups.map((g: any) => ({
+      id: g.id,
+      name: g.name,
+      color: g.color ?? null,
+      score: g.score ?? 0,
+      members: g.members ?? [],
+    })),
+    submissions: submissions.map((s) => ({
+      id: s.id,
+      groupId: s.groupId,
+      groupName: s.groupName ?? null,
+      barId: s.barId,
+      challengeId: s.challengeId,
+      photoUrl: s.photoUrl ?? null,
+      status: s.status,
+      pointsAwarded: s.pointsAwarded ?? null,
+    })),
+    bars: bars.map((b: any) => ({
+      id: b.id,
+      name: b.name,
+      order: b.order ?? 0,
+    })),
+  });
+
+  await updateDoc(doc(db, 'events', eventId), { status: 'ended' });
+}
+
+export async function getCrawlArchive(id: string): Promise<CrawlArchive | null> {
+  const snap = await getDoc(doc(db, 'crawlArchives', id));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as Omit<CrawlArchive, 'id'>) };
+}
+
+export async function getUserCrawlArchives(userId: string): Promise<CrawlArchive[]> {
+  const snap = await getDocs(
+    query(collection(db, 'crawlArchives'), where('memberIds', 'array-contains', userId)),
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<CrawlArchive, 'id'>) }))
+    .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
 }

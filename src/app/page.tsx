@@ -111,8 +111,9 @@ export default function HomePage() {
     load();
   }, [loading, router, user]);
 
-  // Real-time: pushes event.started to all clients the moment admin hits Start
+  // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
+  const lastEventIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(
@@ -122,6 +123,13 @@ export default function HomePage() {
           snapshot.docs
             .map((d) => ({ id: d.id, ...(d.data() as Omit<EventDoc, 'id'>) }))
             .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] || null;
+
+        // Admin ended the crawl — event left the 'active' query → redirect to summary
+        if (!activeEvent && lastEventIdRef.current !== null) {
+          router.push(`/summary?id=${lastEventIdRef.current}` as any);
+          return;
+        }
+        if (activeEvent) lastEventIdRef.current = activeEvent.id;
 
         const justStarted = !wasStartedRef.current && !!activeEvent?.started;
         wasStartedRef.current = !!activeEvent?.started;
@@ -141,7 +149,7 @@ export default function HomePage() {
       },
     );
     return () => unsub();
-  }, [user]);
+  }, [user, router]);
 
   // Derived route values
   const orderedBars = currentGroup?.barSequence
