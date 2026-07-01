@@ -72,7 +72,20 @@ export async function recalculateSchedule(eventId: string): Promise<void> {
   await batch.commit();
 }
 
+// Returns the group (if any) the user already belongs to within a given event.
+// Used to enforce one group per participant per crawl.
+async function findUserGroupInEvent(userId: string, eventId: string): Promise<GroupDoc | null> {
+  const snap = await getDocs(query(collection(db, 'groups'), where('members', 'array-contains', userId)));
+  const match = snap.docs
+    .map((d) => ({ ...(d.data() as GroupDoc), id: d.id }))
+    .find((g) => g.eventId === eventId);
+  return match ?? null;
+}
+
 export async function createGroup({ name, ownerId, color, eventId }: { name: string; ownerId: string; color?: string; eventId?: string }) {
+  if (eventId && (await findUserGroupInEvent(ownerId, eventId))) {
+    throw new Error("You're already in a group for this crawl.");
+  }
   const code = Math.random().toString(36).slice(2, 8).toUpperCase();
   const groupRef = doc(collection(db, 'groups'));
   const group: GroupDoc = {
@@ -88,7 +101,10 @@ export async function createGroup({ name, ownerId, color, eventId }: { name: str
     ...(eventId ? { eventId } : {}),
   };
   await setDoc(groupRef, group);
-  if (eventId) await recalculateSchedule(eventId);
+  // Routes (barSequence) are assigned authoritatively when the admin starts the crawl
+  // (see startCrawl -> recalculateSchedule). We intentionally don't recalculate here:
+  // it would batch-write every group in the event, which a non-admin joiner isn't
+  // permitted to do, and routes aren't shown until the crawl has started anyway.
   return group;
 }
 
@@ -101,11 +117,22 @@ export async function joinGroup({ code, userId, eventId }: { code: string; userI
 
   const groupDoc = snapshot.docs[0];
   const group = groupDoc.data() as GroupDoc;
+
+  // Enforce one group per participant per crawl: block joining a different group
+  // if the user already belongs to one in this event. Re-joining the same group is a no-op.
+  const eventForCheck = eventId ?? group.eventId;
+  if (eventForCheck) {
+    const existing = await findUserGroupInEvent(userId, eventForCheck);
+    if (existing && existing.id !== groupDoc.id) {
+      throw new Error("You're already in a group for this crawl.");
+    }
+  }
+
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
   const update = { ...group, members, ...(eventId ? { eventId } : {}) };
   await setDoc(doc(db, 'groups', groupDoc.id), update, { merge: true });
-  const resolvedEventId = eventId ?? group.eventId;
-  if (resolvedEventId) await recalculateSchedule(resolvedEventId);
+  // No recalculateSchedule here — routes are assigned when the admin starts the crawl.
+  // (Recalc batch-writes every group, which a non-admin joiner can't do.)
   return { ...update, id: groupDoc.id } as GroupDoc;
 }
 

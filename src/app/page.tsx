@@ -7,6 +7,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Home, Target, Images, Trophy, User } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
+import { GroupJoinCreate } from '@/components/GroupJoinCreate';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { BarDoc, EventDoc } from '@/lib/types';
@@ -171,6 +172,11 @@ export default function HomePage() {
     );
   };
 
+  const handleGroupJoined = (group: GroupDoc) => {
+    homeCache.currentGroup = group;
+    setCurrentGroup(group);
+  };
+
   if (loading || !user) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
@@ -233,9 +239,13 @@ export default function HomePage() {
                 <p className="text-2xl font-bold text-white">{currentGroup.score ?? 0}</p>
               </div>
             </Link>
+          ) : event && !event.started ? (
+            <GroupJoinCreate eventId={event.id} userId={user.uid} onSuccess={handleGroupJoined} />
           ) : (
             <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-500">
-              No group yet — get the crawl code from your organiser.
+              {event?.started
+                ? 'The crawl has already started — ask the organiser to add you.'
+                : 'No group yet — get the crawl code from your organiser.'}
             </div>
           )}
         </div>
