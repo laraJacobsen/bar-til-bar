@@ -1,12 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { Camera } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
+import { PageSkeleton } from '@/components/PageSkeleton';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, getChallenges } from '@/lib/firestore';
 import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
@@ -122,22 +122,15 @@ export default function ChallengesPage() {
   };
 
   if (loading) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4">
-        <p className="text-slate-400 text-sm">Loading…</p>
-      </main>
-    );
+    return <PageSkeleton />;
   }
 
   if (!event?.started) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
-            <h1 className="text-2xl font-semibold">—</h1>
-          </div>
-          <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">Back</Link>
+        <div>
+          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
+          <h1 className="text-2xl font-semibold">—</h1>
         </div>
         <div className="rounded-[2rem] border border-dashed border-white/10 bg-white/5 p-8 text-center">
           <p className="text-sm text-slate-400">Waiting for the leader to start the crawl…</p>
@@ -148,12 +141,9 @@ export default function ChallengesPage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 pb-24">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
-          <h1 className="text-2xl font-semibold">{currentBar?.name ?? '—'}</h1>
-        </div>
-        <Link href="/" className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-sm">Back</Link>
+      <div>
+        <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Current stop</p>
+        <h1 className="text-2xl font-semibold">{currentBar?.name ?? '—'}</h1>
       </div>
 
       {/* Meeting info */}
