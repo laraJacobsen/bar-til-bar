@@ -42,16 +42,25 @@ Shared: **status bar** feel at top, **page header** (`eyebrow` in pink + big Spa
 - Approval Queue card (empty state when none).
 - Photos by Group list.
 
-## Onboarding / Login — `src/app/login/page.tsx` (4-step overlay in mockup)
+## Onboarding / Login — `src/app/login/page.tsx` (4-step flow)
 
-Progress bars at top (active `w-[26px] bg-grad`). Steps:
+Progress bars at top (active `w-[26px] bg-grad`, inactive `w-[7px] bg-white/[.12]`). This is the **reconciled flow** — it follows the mockup's visuals but adjusts the sequence to fit the app (decisions confirmed with the product owner; see notes after the steps). Do NOT implement the raw mockup order literally.
 
-1. **Welcome** — 88px gradient cocktail icon tile, hero title, **Continue with Google** (white button) + **Explore demo** (ghost).
-2. **Name** — display-name input.
-3. **Role** — three role-selector cards: Make group / Join group / Admin. Selected = gradient-soft bg + pink border + filled gradient check.
-4. **Details** — crawl code input (+ conditional group-name field for "Make group").
+**Architecture: authenticate first, set up group last.**
 
-> The current `login/page.tsx` implements all steps as one form with a slate/rose theme and white pill buttons. Restyle to these tokens: gradient CTAs, glass card (`rounded-[26px]`), pink accent, teal success box for the created group code, Space Grotesk/Manrope. Keep the existing auth flow logic (`useAuth`, modes create/join/admin) intact.
+1. **Welcome** — 88px gradient cocktail icon tile, hero title, **Continue with Google** (white button, see `components.md`) + **Explore demo** (ghost → guest browse at `/`, no auth/event). Clicking Continue runs the Google popup *here* and writes a minimal user doc. The user is now authenticated but **onboarding is incomplete** — they have no role/group yet.
+2. **Screen name** — text input for the **screen name** (the handle shown on the leaderboard, gallery, and profile). This is intentionally distinct from the Google account name: prefill the input with the Google `displayName` as a starting suggestion, but the user edits it here and the edited value is what gets stored as `displayName`. Keep this step even though Google provides a name.
+3. **Role** — three role-selector cards, kept as **peer options**: Make group / Join group / Admin. Selected = gradient-soft bg + pink border + filled gradient check; unselected = `panel2` bg + `border2` + empty check.
+4. **Details** — crawl code input (+ conditional group-name field when role = Make group). **Admin skips this step** (no crawl code / no group). The final button performs the group create/join (`createGroup`/`joinGroup`) and completes onboarding.
+
+**Implementation notes (for whoever builds this — flag these, don't silently skip):**
+
+- **Split `AuthProvider.signIn`.** Today it's one atomic call (Google popup → user doc → resolve crawl code → create/join group) fired from a single form. The new flow needs it split: **(a)** authenticate + write minimal user doc at step 1; **(b)** a separate "complete onboarding" action at step 4 that resolves the crawl code and creates/joins the group. Preserve the existing helpers (`getEventByJoinCode`, `createGroup`, `joinGroup`) and the "one group per participant per crawl" enforcement.
+- **Incomplete-onboarding state + route guard.** Because auth now completes before group setup, a user can close the app mid-flow and return authenticated with no group. Add a guard: if the user is signed in but hasn't finished onboarding (no role chosen / no group for a `group` user), route them back into the flow at the right step instead of into the tabs. Resume rather than restart.
+- **Screen name vs account name.** Store the edited screen name as `displayName`. If you later need the real Google name too, keep it in a separate field — don't overwrite the screen name with it.
+- **Admin is self-serve (unchanged).** Selecting Admin writes `role: 'admin'`; keep the warning/confirmation copy. Admin bypasses steps needing a crawl code/group.
+
+**Restyle:** gradient CTAs, glass card (`rounded-[26px]`), pink accent, teal success box for a created group code, Space Grotesk / Manrope. Keep auth logic and the create/join/admin modes intact.
 
 ## Not in the mockup
 
