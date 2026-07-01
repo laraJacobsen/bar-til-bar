@@ -2,6 +2,10 @@ import { addDoc, collection, doc, getDoc, getDocs, increment, limit, query, setD
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, CrawlArchive, EventDoc, SubmissionDoc } from '@/lib/types';
 
+export async function updateUserPhoto(uid: string, photoURL: string) {
+  await setDoc(doc(db, 'users', uid), { photoURL, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
 export async function seedDemoData() {
   const eventsSnap = await getDocs(collection(db, 'events'));
   if (!eventsSnap.empty) {
