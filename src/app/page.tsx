@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Home, Target, Images, Trophy, User } from 'lucide-react';
+import { Home, Target, Images, Trophy, User, MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -27,6 +27,30 @@ const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; allGro
   bars: [],
 };
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function fmtDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
+function mapsUrl(bar: BarDoc): string | null {
+  if (bar.lat != null && bar.lng != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${bar.lat},${bar.lng}`;
+  }
+  if (bar.address) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bar.address)}`;
+  }
+  return null;
+}
+
 // Derives the current slot and countdown from the event schedule — no Firestore
 // write needed. Slot advances automatically when time crosses the boundary.
 // Shows a "Move!" warning for the last 10 minutes of each stop.
@@ -34,8 +58,8 @@ function useSchedule(
   startMs: number | null,
   endMs: number | null,
   numSlots: number,
-): { slot: number; countdown: string; isWarning: boolean } {
-  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false });
+): { slot: number; countdown: string; isWarning: boolean; remainingMs: number } {
+  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false, remainingMs: 0 });
 
   useEffect(() => {
     if (!startMs || !endMs || numSlots === 0) return;
@@ -54,6 +78,7 @@ function useSchedule(
         slot,
         countdown: remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
         isWarning,
+        remainingMs: remaining,
       });
     };
 
@@ -72,6 +97,7 @@ export default function HomePage() {
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
   const [allGroups, setAllGroups] = useState<GroupDoc[]>(homeCache.allGroups);
   const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     if (!loading && !user) { router.replace('/login'); return; }
@@ -112,9 +138,18 @@ export default function HomePage() {
     load();
   }, [loading, router, user]);
 
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+    );
+  }, []);
+
   // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
   const lastEventIdRef = useRef<string | null>(null);
+  const notifiedForSlot = useRef<number>(-1);
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(
@@ -163,7 +198,7 @@ export default function HomePage() {
 
   // Time-based schedule: slot advances automatically when the slot boundary
   // passes — no Firestore write required. isWarning fires at 10 min remaining.
-  const { slot: liveSlot, countdown, isWarning } = useSchedule(
+  const { slot: liveSlot, countdown, isWarning, remainingMs } = useSchedule(
     event?.started ? startMs : null,
     event?.started ? endMs : null,
     orderedBars.length,
@@ -180,6 +215,54 @@ export default function HomePage() {
     );
   };
 
+  // Leave-time helpers (walking at ~5 km/h = 12 min/km)
+  const nextBar = orderedBars[currentSlot + 1] ?? null;
+  const distToNextKm =
+    userLocation && nextBar?.lat != null && nextBar?.lng != null
+      ? haversineKm(userLocation.lat, userLocation.lng, nextBar.lat, nextBar.lng)
+      : null;
+  const walkToNextMin = distToNextKm != null ? Math.ceil(distToNextKm * 12) : null;
+  const leaveInMin =
+    walkToNextMin != null && event?.started
+      ? Math.floor((remainingMs - walkToNextMin * 60_000) / 60_000)
+      : null;
+
+  // Request notification permission once the crawl goes live
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!event?.started || !('Notification' in window)) return;
+    if (Notification.permission === 'default') Notification.requestPermission();
+  }, [event?.started]);
+
+  // Schedule a "leave now" notification timed to the walking distance to the next bar
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!event?.started || !startMs || !msPerStop) return;
+    const next = orderedBars[currentSlot + 1];
+    if (!next || next.lat == null || next.lng == null || !userLocation) return;
+    if (notifiedForSlot.current === currentSlot) return;
+
+    const distKm = haversineKm(userLocation.lat, userLocation.lng, next.lat, next.lng);
+    const walkMs = Math.ceil(distKm * 12) * 60_000;
+    const slotEndMs = startMs + (currentSlot + 1) * msPerStop;
+    const delay = slotEndMs - walkMs - Date.now();
+
+    const fire = () => {
+      if (notifiedForSlot.current === currentSlot) return;
+      notifiedForSlot.current = currentSlot;
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`Head to ${next.name}! 🚶`, {
+          body: `${Math.ceil(distKm * 12)} min walk — leave now to arrive on time.`,
+        });
+      }
+    };
+
+    if (delay <= 0) { fire(); return; }
+    const timer = setTimeout(fire, delay);
+    return () => clearTimeout(timer);
+  // notifiedForSlot is a ref — intentionally excluded from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSlot, event?.started, userLocation, orderedBars, startMs, msPerStop]);
   const handleGroupJoined = (group: GroupDoc) => {
     homeCache.currentGroup = group;
     setCurrentGroup(group);
@@ -264,7 +347,29 @@ export default function HomePage() {
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
               <p className="font-semibold text-white mt-0.5">{currentBar?.name ?? '—'}</p>
+              {currentBar && mapsUrl(currentBar) && (
+                <a
+                  href={mapsUrl(currentBar)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-fit items-center gap-1 text-xs text-pink-300 hover:text-pink-200 transition"
+                >
+                  <MapPin className="h-3 w-3" />
+                  Get directions
+                </a>
+              )}
               <p className="text-xs text-slate-500 mt-0.5">Stop {currentSlot + 1} of {orderedBars.length}</p>
+              {nextBar && walkToNextMin != null && (
+                <p className={`text-xs mt-1.5 font-medium ${
+                  leaveInMin != null && leaveInMin <= 0 ? 'text-rose-400' : 'text-slate-400'
+                }`}>
+                  {leaveInMin != null && leaveInMin <= 0
+                    ? `Head to ${nextBar.name} now! (${walkToNextMin} min walk)`
+                    : leaveInMin != null
+                    ? `Leave in ${leaveInMin}m · ${walkToNextMin} min walk to ${nextBar.name}`
+                    : `${walkToNextMin} min walk to ${nextBar.name}`}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Time left</p>
@@ -327,6 +432,11 @@ export default function HomePage() {
                 const isCurrent = idx === currentSlot;
                 const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
                 const meetingGroups = meetingGroupsAtSlot(idx);
+                const distKm =
+                  userLocation && bar.lat != null && bar.lng != null
+                    ? haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng)
+                    : null;
+                const barUrl = mapsUrl(bar);
 
                 return (
                   <li key={`${bar.id}-${idx}`} className="relative flex items-center gap-4 pb-4 last:pb-0">
@@ -357,24 +467,45 @@ export default function HomePage() {
                         <p className={`font-semibold leading-snug ${isDone ? 'text-slate-500' : isCurrent ? 'text-white' : 'text-slate-400'}`}>
                           {bar.name}
                         </p>
-                        {isCurrent && (
-                          <span className="shrink-0 rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
-                            Now
-                          </span>
-                        )}
-                        {isDone && (
-                          <svg className="h-4 w-4 shrink-0 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
+                        <div className="flex shrink-0 items-center gap-2">
+                          {barUrl && !isDone && (
+                            <a
+                              href={barUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-slate-500 hover:text-pink-300 transition"
+                              aria-label={`Directions to ${bar.name}`}
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {isCurrent && (
+                            <span className="rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
+                              Now
+                            </span>
+                          )}
+                          {isDone && (
+                            <svg className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
-                        {arrivalMs && (
-                          <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
-                            {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {arrivalMs && (
+                            <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
+                              {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
+                            </p>
+                          )}
+                          {distKm != null && (
+                            <span className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-500'}`}>
+                              · {fmtDist(distKm)} (~{Math.ceil(distKm * 12)} min walk)
+                            </span>
+                          )}
+                        </div>
                         {meetingGroups.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 shrink-0">
                             {meetingGroups.map((g) => (
@@ -391,6 +522,7 @@ export default function HomePage() {
                           </div>
                         )}
                       </div>
+
                     </div>
                   </li>
                 );

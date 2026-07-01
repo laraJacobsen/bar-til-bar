@@ -10,6 +10,35 @@ import { type GroupDoc, recalculateSchedule } from '@/lib/group';
 import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!address.trim()) return null;
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'en' } },
+    );
+    const data = await res.json();
+    if (!data.length) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch {
+    return null;
+  }
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function fmtDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
 export default function AdminPage() {
   const { user } = useAuth();
   const [bars, setBars] = useState<BarDoc[]>([]);
@@ -36,11 +65,13 @@ export default function AdminPage() {
     return new Date(nextHour.getTime() - tzOffset).toISOString().slice(0, 16);
   });
   const [durationHours, setDurationHours] = useState(6);
-  const [wizardBars, setWizardBars] = useState<string[]>([]);
+  const [wizardBars, setWizardBars] = useState<WizardBar[]>([]);
   const [newWizardBar, setNewWizardBar] = useState('');
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
 
-  // Wizard challenges
+  // Wizard bars & challenges
+  interface WizardBar { name: string; address: string; lat?: number; lng?: number; }
   interface WizardChallenge { id: string; barIndex: number; title: string; description: string; difficulty: 'easy' | 'medium' | 'hard' }
   const DIFF_PTS = { easy: 50, medium: 100, hard: 150 } as const;
   const [wizardChallenges, setWizardChallenges] = useState<WizardChallenge[]>([]);
@@ -91,6 +122,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+    );
   }, []);
 
   // Poll every 8s while crawl hasn't started so new groups appear automatically
@@ -193,8 +232,19 @@ export default function AdminPage() {
 
   const addWizardBar = () => {
     if (!newWizardBar.trim()) return;
-    setWizardBars((prev) => [...prev, newWizardBar.trim()]);
+    setWizardBars((prev) => [...prev, { name: newWizardBar.trim(), address: '' }]);
     setNewWizardBar('');
+  };
+
+  const updateWizardBarAddress = async (barIdx: number, address: string) => {
+    setWizardBars((prev) => prev.map((b, i) => (i === barIdx ? { ...b, address } : b)));
+    if (!address.trim()) return;
+    const coords = await geocodeAddress(address);
+    if (coords) {
+      setWizardBars((prev) =>
+        prev.map((b, i) => (i === barIdx ? { ...b, lat: coords.lat, lng: coords.lng } : b)),
+      );
+    }
   };
 
   const removeWizardBar = (index: number) => {
@@ -222,15 +272,17 @@ export default function AdminPage() {
       });
 
       for (let idx = 0; idx < wizardBars.length; idx++) {
-        const barName = wizardBars[idx];
-        const barId = barName.toLowerCase().replace(/\s+/g, '-');
+        const wizBar = wizardBars[idx];
+        const barId = wizBar.name.toLowerCase().replace(/\s+/g, '-');
         await setDoc(doc(db, 'bars', barId), {
           id: barId,
-          name: barName,
-          address: `${10 + idx * 12} Market St`,
+          name: wizBar.name,
+          address: wizBar.address || '',
           description: `Stop #${idx + 1} on the crawl`,
           order: idx + 1,
           eventId,
+          ...(wizBar.lat !== undefined ? { lat: wizBar.lat } : {}),
+          ...(wizBar.lng !== undefined ? { lng: wizBar.lng } : {}),
         });
         const barChallenges = wizardChallenges.filter((c) => c.barIndex === idx);
         for (const ch of barChallenges) {
@@ -574,7 +626,7 @@ export default function AdminPage() {
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-sm font-bold text-pink-400 shrink-0">{barIdx + 1}.</span>
-                            <span className="font-medium truncate">{bar}</span>
+                            <span className="font-medium truncate">{bar.name}</span>
                           </div>
                           <button
                             type="button"
@@ -585,6 +637,22 @@ export default function AdminPage() {
                             }}
                             className="shrink-0 text-slate-600 hover:text-rose-400 transition font-bold text-lg leading-none"
                           >×</button>
+                        </div>
+
+                        {/* Address + distance */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            value={bar.address}
+                            onChange={(e) => setWizardBars((prev) => prev.map((b, i) => (i === barIdx ? { ...b, address: e.target.value } : b)))}
+                            onBlur={(e) => updateWizardBarAddress(barIdx, e.target.value)}
+                            placeholder="Address (e.g. 18 Market St, Oslo)"
+                            className="flex-1 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-xs text-white outline-none focus:border-pink-500 placeholder:text-slate-600"
+                          />
+                          {userLocation && bar.lat !== undefined && bar.lng !== undefined && (
+                            <span className="shrink-0 rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 font-medium">
+                              {fmtDist(haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng))} away
+                            </span>
+                          )}
                         </div>
 
                         {/* Challenges list */}
