@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { addDoc, arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, CrawlArchive, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -139,6 +139,12 @@ export async function rejectSubmission(submissionId: string, groupId: string, po
   await batch.commit();
 }
 
+export async function toggleSubmissionReaction(submissionId: string, userId: string, currentlyLiked: boolean): Promise<void> {
+  await updateDoc(doc(db, 'submissions', submissionId), {
+    likedBy: currentlyLiked ? arrayRemove(userId) : arrayUnion(userId),
+  });
+}
+
 export async function getAllSubmissions(): Promise<SubmissionDoc[]> {
   const snapshot = await getDocs(collection(db, 'submissions'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<SubmissionDoc, 'id'>) }));
@@ -186,6 +192,7 @@ export async function archiveCrawl(eventId: string, eventName: string): Promise<
       photoUrl: s.photoUrl ?? null,
       status: s.status,
       pointsAwarded: s.pointsAwarded ?? null,
+      likedBy: s.likedBy ?? null,
     })),
     bars: bars.map((b: any) => ({
       id: b.id,

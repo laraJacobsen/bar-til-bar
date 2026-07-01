@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Download, Images } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { getActiveEvent, getBars, getCrawlArchive } from '@/lib/firestore';
 import { getGroups } from '@/lib/group';
@@ -174,9 +175,21 @@ function SummaryContent() {
             </section>
           )}
 
+          {/* Gallery CTA */}
+          <Link
+            href={`/gallery${archiveId ? `?id=${archiveId}` : ''}` as any}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-violet-600 px-4 py-3.5 text-sm font-semibold text-white transition hover:opacity-90"
+          >
+            <Images className="h-4 w-4" />
+            View full gallery &amp; react to photos
+          </Link>
+
           {allPhotos.length > 0 && (
             <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-              <h2 className="text-lg font-semibold mb-4">All photos</h2>
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">All photos</h2>
+                <span className="text-sm text-slate-400">{allPhotos.length}</span>
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 {allPhotos.map((s) => {
                   const group = data.groups.find((g) => g.id === s.groupId);
@@ -192,6 +205,16 @@ function SummaryContent() {
                       <span className={`absolute top-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.status === 'approved' ? 'bg-emerald-500/90' : s.status === 'rejected' ? 'bg-rose-500/90' : 'bg-yellow-500/90'}`}>
                         {s.status === 'approved' ? '✓' : s.status === 'rejected' ? '✗' : '…'}
                       </span>
+                      <a
+                        href={s.photoUrl!}
+                        download={`photo-${s.id}.jpg`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute bottom-6 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition"
+                      >
+                        <Download className="h-3 w-3" />
+                      </a>
                     </div>
                   );
                 })}

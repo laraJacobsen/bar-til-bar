@@ -167,17 +167,20 @@ export default function ProfilePage() {
                       </div>
                       {allPhotos.length > 0 && (
                         <div>
-                          <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">All photos</p>
+                          <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Photos</p>
                           <div className="grid grid-cols-3 gap-1.5">
                             {allPhotos.slice(0, 6).map((s) => (
                               <img key={s.id} src={s.photoUrl!} alt="" className="h-20 w-full rounded-lg object-cover" />
                             ))}
                           </div>
-                          {allPhotos.length > 6 && (
-                            <Link href={`/summary?id=${archive.id}` as any} className="mt-2 block text-center text-xs text-pink-400 underline">
-                              See all {allPhotos.length} photos →
+                          <div className="mt-2 flex gap-2">
+                            <Link href={`/gallery?id=${archive.id}` as any} className="flex-1 rounded-full bg-pink-500/15 py-1.5 text-center text-xs font-medium text-pink-300 hover:bg-pink-500/25 transition">
+                              Gallery &amp; reactions
                             </Link>
-                          )}
+                            <Link href={`/summary?id=${archive.id}` as any} className="flex-1 rounded-full bg-white/8 py-1.5 text-center text-xs font-medium text-slate-400 hover:bg-white/15 transition">
+                              Full summary
+                            </Link>
+                          </div>
                         </div>
                       )}
                     </div>

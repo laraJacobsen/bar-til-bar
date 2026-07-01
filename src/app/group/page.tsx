@@ -8,6 +8,7 @@ import { getUserGroup, updateGroupPicture } from '@/lib/group';
 import type { GroupDoc } from '@/lib/group';
 import { uploadToR2 } from '@/lib/upload';
 
+
 export default function GroupPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
