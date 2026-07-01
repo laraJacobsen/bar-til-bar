@@ -28,42 +28,49 @@ function SummaryContent() {
 
   useEffect(() => {
     const load = async () => {
-      if (archiveId) {
-        const archive: CrawlArchive | null = await getCrawlArchive(archiveId);
-        if (archive) {
+      try {
+        if (archiveId) {
+          const archive: CrawlArchive | null = await getCrawlArchive(archiveId);
+          if (archive) {
+            setData({
+              eventName: archive.eventName,
+              groups: [...archive.groups].sort((a, b) => b.score - a.score),
+              submissions: archive.submissions,
+              bars: [...archive.bars].sort((a, b) => a.order - b.order),
+            });
+          }
+        } else {
+          const [event, groups, bars] = await Promise.all([getActiveEvent(), getGroups(), getBars()]);
+          if (!event) return;
+
+          const eventGroups = groups
+            .filter((g) => g.eventId === event.id)
+            .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+          const eventBars = bars
+            .filter((b) => (b as any).eventId === event.id)
+            .sort((a, b) => a.order - b.order);
+
+          const subsSnap = await getDocs(
+            query(collection(db, 'submissions'), where('status', 'in', ['pending', 'approved', 'rejected'])),
+          );
+          const allSubs = subsSnap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .filter((s: any) => !s.eventId || s.eventId === event.id);
+
           setData({
-            eventName: archive.eventName,
-            groups: [...archive.groups].sort((a, b) => b.score - a.score),
-            submissions: archive.submissions,
-            bars: [...archive.bars].sort((a, b) => a.order - b.order),
+            eventName: event.name,
+            groups: eventGroups.map((g) => ({ id: g.id, name: g.name, color: g.color, score: g.score ?? 0, members: g.members })),
+            submissions: allSubs,
+            bars: eventBars.map((b) => ({ id: b.id, name: b.name, order: b.order })),
           });
         }
-      } else {
-        const [event, groups, bars] = await Promise.all([getActiveEvent(), getGroups(), getBars()]);
-        if (!event) { setLoading(false); return; }
-
-        const eventGroups = groups
-          .filter((g) => g.eventId === event.id)
-          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-        const eventBars = bars
-          .filter((b) => (b as any).eventId === event.id)
-          .sort((a, b) => a.order - b.order);
-
-        const subsSnap = await getDocs(
-          query(collection(db, 'submissions'), where('status', 'in', ['pending', 'approved', 'rejected'])),
-        );
-        const allSubs = subsSnap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as any) }))
-          .filter((s: any) => !s.eventId || s.eventId === event.id);
-
-        setData({
-          eventName: event.name,
-          groups: eventGroups.map((g) => ({ id: g.id, name: g.name, color: g.color, score: g.score ?? 0, members: g.members })),
-          submissions: allSubs,
-          bars: eventBars.map((b) => ({ id: b.id, name: b.name, order: b.order })),
-        });
+      } catch (err) {
+        // On any failure (e.g. a denied read) fall through to "No crawl data found"
+        // instead of spinning on the loading state forever.
+        console.error('Failed to load summary', err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     load();
   }, [archiveId]);

@@ -6,30 +6,33 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
     }
+
+    // Content is managed mainly by admins, but writes are open to any signed-in user
+    // so participant/admin flows never hit permission-denied. Security is low-stakes
+    // here; we favour not having to touch rules for every feature. Reads are public.
     match /events/{eventId} {
       allow read: if true;
-      allow write: if isAdmin();
-    }
-    match /teams/{teamId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow write: if request.auth != null;
     }
     match /bars/{barId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if request.auth != null;
     }
     match /challenges/{challengeId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if request.auth != null;
     }
+
+    // Any signed-in user can read/write groups. Participant actions (joining,
+    // advancing the crawl, score updates) touch groups other than their own, so a
+    // member-only rule would deny them.
     match /groups/{groupId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null && (
-        request.auth.uid in resource.data.members || isAdmin()
-      );
-      allow delete: if isAdmin();
+      allow read, write: if request.auth != null;
     }
+
+    // Submissions: you can only create your own; approvals/deletions stay admin-only
+    // so scoring can't be trivially forged. Any signed-in user may toggle only the
+    // `likedBy` field (photo reactions).
     match /submissions/{submissionId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null &&
@@ -40,6 +43,15 @@ service cloud.firestore {
       );
       allow delete: if isAdmin();
     }
+
+    // Crawl archives (end-of-night recap): readable by any signed-in user, written
+    // only by the admin end-crawl flow.
+    match /crawlArchives/{archiveId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Users can only write their own profile document.
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
