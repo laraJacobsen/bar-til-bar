@@ -27,7 +27,7 @@ export default function TabsLayout({ children }: { children: React.ReactNode }) 
               key={item.label}
               href={item.href as any}
               aria-label={item.label}
-              className={`relative flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-1 transition-colors ${
+              className={`relative flex h-14 flex-1 flex-col items-center justify-center rounded-2xl px-1 transition-colors ${
                 isActive ? 'text-[#ff5aa8]' : 'text-[#6a637f]'
               }`}
             >
@@ -38,23 +38,26 @@ export default function TabsLayout({ children }: { children: React.ReactNode }) 
                   transition={{ type: 'spring', stiffness: 500, damping: 40 }}
                 />
               )}
+              {/* Icon animates with transforms only (scale + fixed upward shift when
+                  active) so nothing reflows — no scale-then-snap. */}
               <motion.span
                 className="relative z-10"
-                animate={{ scale: isActive ? 0.92 : 1.3 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                animate={{ scale: isActive ? 0.92 : 1.3, y: isActive ? -7 : 0 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 whileTap={{ scale: isActive ? 0.82 : 1.15 }}
               >
                 <Icon className="h-5 w-5" aria-hidden />
               </motion.span>
+              {/* Absolutely positioned so it never pushes the icon around. */}
               <AnimatePresence initial={false}>
                 {isActive && (
                   <motion.span
                     key="label"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                    className="relative z-10 overflow-hidden text-[10px] font-bold leading-none"
+                    className="pointer-events-none absolute bottom-2 z-10 text-[10px] font-bold leading-none"
                   >
                     {item.label}
                   </motion.span>
