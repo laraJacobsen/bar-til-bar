@@ -326,19 +326,17 @@ export default function HomePage() {
                 <p className="text-2xl font-bold text-white">{currentGroup.score ?? 0}</p>
               </div>
             </Link>
-          ) : event && !event.started ? (
-            <GroupJoinCreate eventId={event.id} userId={user.uid} onSuccess={handleGroupJoined} />
+          ) : event ? (
+            <GroupJoinCreate eventId={event.id} userId={user.uid} joinOnly={!!event.started} onSuccess={handleGroupJoined} />
           ) : (
             <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-500">
-              {event?.started
-                ? 'The crawl has already started — ask the organiser to add you.'
-                : 'No group yet — get the crawl code from your organiser.'}
+              No group yet — get the crawl code from your organiser.
             </div>
           )}
         </div>
 
         {/* Current stop info + countdown */}
-        {event?.started && orderedBars.length > 0 && (
+        {event?.started && currentGroup && orderedBars.length > 0 && (
           <div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3">
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
@@ -377,7 +375,7 @@ export default function HomePage() {
         )}
 
         {/* Dot progress bar */}
-        {event?.started && orderedBars.length > 0 && (
+        {event?.started && currentGroup && orderedBars.length > 0 && (
           <div className="mt-3 flex gap-1.5">
             {orderedBars.map((_, idx) => (
               <div
@@ -393,22 +391,22 @@ export default function HomePage() {
         )}
 
         {/* CTA */}
-        {event?.started ? (
+        {event?.started && currentGroup ? (
           <Link
             href="/challenges"
             className="mt-4 flex w-full items-center justify-center rounded-full bg-white px-4 py-3 font-semibold text-slate-900 hover:bg-slate-100 transition"
           >
             Go to Current Challenge
           </Link>
-        ) : (
+        ) : !event?.started ? (
           <div className="mt-4 flex w-full items-center justify-center rounded-full bg-white/10 px-4 py-3 text-sm font-semibold text-slate-500 cursor-not-allowed select-none">
             Waiting for leader to start
           </div>
-        )}
+        ) : null}
       </section>
 
-      {/* Tonight's flow — only shown once crawl is live */}
-      {event?.started && orderedBars.length > 0 && (
+      {/* Tonight's flow — only shown once crawl is live and user has a group */}
+      {event?.started && currentGroup && orderedBars.length > 0 && (
         <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-semibold">Tonight&apos;s flow</h2>
