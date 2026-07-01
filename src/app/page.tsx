@@ -26,6 +26,20 @@ const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; allGro
   bars: [],
 };
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function fmtDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
 // Derives the current slot and countdown from the event schedule — no Firestore
 // write needed. Slot advances automatically when time crosses the boundary.
 // Shows a "Move!" warning for the last 10 minutes of each stop.
@@ -71,6 +85,7 @@ export default function HomePage() {
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
   const [allGroups, setAllGroups] = useState<GroupDoc[]>(homeCache.allGroups);
   const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     if (!loading && !user) { router.replace('/login'); return; }
@@ -110,6 +125,14 @@ export default function HomePage() {
 
     load();
   }, [loading, router, user]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+    );
+  }, []);
 
   // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
@@ -360,11 +383,18 @@ export default function HomePage() {
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
-                        {arrivalMs && (
-                          <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
-                            {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {arrivalMs && (
+                            <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
+                              {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
+                            </p>
+                          )}
+                          {userLocation && bar.lat !== undefined && bar.lng !== undefined && (
+                            <span className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-500'}`}>
+                              · {fmtDist(haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng))}
+                            </span>
+                          )}
+                        </div>
                         {meetingGroups.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 shrink-0">
                             {meetingGroups.map((g) => (
@@ -381,6 +411,7 @@ export default function HomePage() {
                           </div>
                         )}
                       </div>
+
                     </div>
                   </li>
                 );
