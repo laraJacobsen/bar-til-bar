@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, deleteDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -80,6 +80,11 @@ export default function AdminPage() {
 
   // End crawl confirmation
   const [endConfirm, setEndConfirm] = useState(false);
+
+  // Major Changes panel
+  const [showMajorChanges, setShowMajorChanges] = useState(false);
+  const [recalcConfirm, setRecalcConfirm] = useState(false);
+  const [showAddGroupInMajor, setShowAddGroupInMajor] = useState(false);
 
   // Photo gallery drill-down
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
@@ -176,13 +181,39 @@ export default function AdminPage() {
     }
   };
 
-  const kickGroup = async (groupId: string) => {
+  const kickGroup = async (groupId: string, recalc = true) => {
     try {
       await deleteDoc(doc(db, 'groups', groupId));
       setGroups((prev) => prev.filter((g) => g.id !== groupId));
-      if (activeEvent) await recalculateSchedule(activeEvent.id);
+      if (recalc && activeEvent) await recalculateSchedule(activeEvent.id);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to remove group');
+    }
+  };
+
+  const removeBar = async (barId: string) => {
+    try {
+      const challengesSnap = await getDocs(query(collection(db, 'challenges'), where('barId', '==', barId)));
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'bars', barId));
+      challengesSnap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      setBars((prev) => prev.filter((b) => b.id !== barId));
+      setChallenges((prev) => prev.filter((c) => c.barId !== barId));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to remove stop');
+    }
+  };
+
+  const handleRecalculate = async () => {
+    if (!activeEvent) return;
+    try {
+      await recalculateSchedule(activeEvent.id);
+      setRecalcConfirm(false);
+      await loadData();
+      setMessage('Routes recalculated.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to recalculate routes');
     }
   };
 
@@ -257,6 +288,10 @@ export default function AdminPage() {
     setMessage('');
     try {
       const eventId = 'active-event';
+      // Clean up all data from any previous crawl so the new one starts empty.
+      // archiveCrawl (called on End Crawl) preserves summaries in crawlArchives
+      // but deliberately leaves groups/bars/challenges in place — delete them here.
+      await deleteEventFull(eventId);
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
       const joinCode = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -379,6 +414,14 @@ export default function AdminPage() {
               >
                 Edit
               </button>
+              {activeEvent.started && (
+                <button
+                  onClick={() => { setShowMajorChanges((v) => !v); setRecalcConfirm(false); setShowAddGroupInMajor(false); }}
+                  className={`rounded-full border px-4 py-2 text-sm transition ${showMajorChanges ? 'border-amber-500/40 bg-amber-500/15 text-amber-300' : 'border-white/10 bg-slate-900/60 text-slate-200 hover:bg-slate-800'}`}
+                >
+                  Major Changes
+                </button>
+              )}
               {!activeEvent.started ? (
                 <button
                   onClick={startCrawl}
@@ -475,12 +518,134 @@ export default function AdminPage() {
             {bars.map((bar, idx) => (
               <span
                 key={bar.id}
-                className="rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300"
+                className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/60 px-3 py-1 text-xs text-slate-300"
               >
-                <span className="text-pink-400 font-semibold mr-1">{idx + 1}.</span>
+                <span className="text-pink-400 font-semibold mr-0.5">{idx + 1}.</span>
                 {bar.name}
+                {!activeEvent.started && (
+                  <button
+                    onClick={() => removeBar(bar.id)}
+                    className="ml-1 font-bold leading-none text-slate-600 hover:text-rose-400 transition"
+                    title="Remove stop"
+                  >×</button>
+                )}
               </span>
             ))}
+          </div>
+        )}
+
+
+        {/* Major Changes panel */}
+        {activeEvent && activeEvent.started && showMajorChanges && (
+          <div className="mt-5 border-t border-amber-500/20 pt-5 space-y-4">
+
+            {/* Groups */}
+            {groups.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Groups</p>
+                <div className="flex flex-col gap-2">
+                  {groups.map((g) => (
+                    <div key={g.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="inline-block h-3 w-3 rounded-full shrink-0" style={{ background: g.color ?? '#f43f5e' }} />
+                        <div>
+                          <p className="text-sm font-medium leading-tight">{g.name}</p>
+                          <p className="text-xs text-slate-500">{g.members.length} {g.members.length === 1 ? 'person' : 'people'} · {g.score ?? 0} pts</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => kickGroup(g.id, false)}
+                        className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 transition"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stops */}
+            {bars.length > 0 && (
+              <div>
+                <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Stops</p>
+                <div className="flex flex-col gap-2">
+                  {bars.map((bar, idx) => (
+                    <div key={bar.id} className="flex items-center justify-between rounded-2xl border border-white/5 bg-slate-900/60 px-4 py-2.5">
+                      <span className="text-sm text-slate-300">
+                        <span className="text-pink-400 font-semibold mr-1.5">{idx + 1}.</span>
+                        {bar.name}
+                      </span>
+                      <button
+                        onClick={() => removeBar(bar.id)}
+                        className="rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400 hover:bg-rose-500/20 transition"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Add group */}
+            <div>
+              {showAddGroupInMajor ? (
+                <>
+                  <GroupJoinCreate
+                    eventId={activeEvent.id}
+                    userId={user!.uid}
+                    onSuccess={(g) => { setGroups((prev) => [...prev, g]); setShowAddGroupInMajor(false); }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAddGroupInMajor(false)}
+                    className="mt-2 w-full text-center text-xs text-slate-500 hover:text-slate-300 transition"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowAddGroupInMajor(true)}
+                  className="w-full rounded-full border border-dashed border-white/10 py-2.5 text-xs text-slate-500 hover:border-violet-500/30 hover:text-violet-400 transition"
+                >
+                  + Add group
+                </button>
+              )}
+            </div>
+
+            {/* Recalculate */}
+            <div className="border-t border-white/10 pt-4">
+              {recalcConfirm ? (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                  <p className="text-sm font-semibold text-amber-300">Recalculate routes?</p>
+                  <p className="mt-1 text-xs text-slate-400">All groups will be assigned new stops based on the current group and stop list.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={handleRecalculate}
+                      className="flex-1 rounded-full bg-amber-500 hover:bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-900 transition"
+                    >
+                      Yes, recalculate
+                    </button>
+                    <button
+                      onClick={() => setRecalcConfirm(false)}
+                      className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/10"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setRecalcConfirm(true)}
+                  className="w-full rounded-full border border-amber-500/20 bg-amber-500/10 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/20 transition"
+                >
+                  Recalculate routes
+                </button>
+              )}
+            </div>
           </div>
         )}
 
