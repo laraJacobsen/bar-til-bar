@@ -4,11 +4,43 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/components/AuthProvider';
+import { GroupJoinCreate } from '@/components/GroupJoinCreate';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
-import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission } from '@/lib/firestore';
+import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!address.trim()) return null;
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'en' } },
+    );
+    const data = await res.json();
+    if (!data.length) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch {
+    return null;
+  }
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function fmtDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
 export default function AdminPage() {
+  const { user } = useAuth();
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
@@ -33,9 +65,18 @@ export default function AdminPage() {
     return new Date(nextHour.getTime() - tzOffset).toISOString().slice(0, 16);
   });
   const [durationHours, setDurationHours] = useState(6);
-const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Room', 'Neon Tunnel', 'Starlight Lounge']);
+  const [wizardBars, setWizardBars] = useState<WizardBar[]>([]);
   const [newWizardBar, setNewWizardBar] = useState('');
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
+
+  // Wizard bars & challenges
+  interface WizardBar { name: string; address: string; lat?: number; lng?: number; }
+  interface WizardChallenge { id: string; barIndex: number; title: string; description: string; difficulty: 'easy' | 'medium' | 'hard' }
+  const DIFF_PTS = { easy: 50, medium: 100, hard: 150 } as const;
+  const [wizardChallenges, setWizardChallenges] = useState<WizardChallenge[]>([]);
+  const [addingChallengeForBar, setAddingChallengeForBar] = useState<number | null>(null);
+  const [newChallenge, setNewChallenge] = useState<{ title: string; description: string; difficulty: 'easy' | 'medium' | 'hard' }>({ title: '', description: '', difficulty: 'easy' });
 
   // End crawl confirmation
   const [endConfirm, setEndConfirm] = useState(false);
@@ -83,6 +124,14 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+    );
+  }, []);
+
   // Poll every 8s while crawl hasn't started so new groups appear automatically
   useEffect(() => {
     if (activeEvent && !activeEvent.started) {
@@ -114,12 +163,12 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
   const endAndDeleteCrawl = async () => {
     if (!activeEvent) return;
     try {
-      await deleteEventFull(activeEvent.id);
+      await archiveCrawl(activeEvent.id, activeEvent.name);
       setActiveEvent(null);
       setGroups([]);
       setBars([]);
       setSubmissions([]);
-      setMessage('Crawl ended and deleted.');
+      setMessage('Crawl ended! Results saved to all participants\' profiles.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to end crawl');
     } finally {
@@ -183,8 +232,19 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
 
   const addWizardBar = () => {
     if (!newWizardBar.trim()) return;
-    setWizardBars((prev) => [...prev, newWizardBar.trim()]);
+    setWizardBars((prev) => [...prev, { name: newWizardBar.trim(), address: '' }]);
     setNewWizardBar('');
+  };
+
+  const updateWizardBarAddress = async (barIdx: number, address: string) => {
+    setWizardBars((prev) => prev.map((b, i) => (i === barIdx ? { ...b, address } : b)));
+    if (!address.trim()) return;
+    const coords = await geocodeAddress(address);
+    if (coords) {
+      setWizardBars((prev) =>
+        prev.map((b, i) => (i === barIdx ? { ...b, lat: coords.lat, lng: coords.lng } : b)),
+      );
+    }
   };
 
   const removeWizardBar = (index: number) => {
@@ -211,37 +271,34 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
         joinCode,
       });
 
-      const challengeTitles = [
-        'Group selfie',
-        'Human pyramid photo',
-        'Find someone wearing red photo',
-        'Team cheers video',
-        'Imitate a famous painting photo',
-      ];
-
       for (let idx = 0; idx < wizardBars.length; idx++) {
-        const barName = wizardBars[idx];
-        const barId = barName.toLowerCase().replace(/\s+/g, '-');
+        const wizBar = wizardBars[idx];
+        const barId = wizBar.name.toLowerCase().replace(/\s+/g, '-');
         await setDoc(doc(db, 'bars', barId), {
           id: barId,
-          name: barName,
-          address: `${10 + idx * 12} Market St`,
+          name: wizBar.name,
+          address: wizBar.address || '',
           description: `Stop #${idx + 1} on the crawl`,
           order: idx + 1,
           eventId,
+          ...(wizBar.lat !== undefined ? { lat: wizBar.lat } : {}),
+          ...(wizBar.lng !== undefined ? { lng: wizBar.lng } : {}),
         });
-        const challengeTitle = challengeTitles[idx % challengeTitles.length];
-        const challengeId = `${barId}-${challengeTitle.toLowerCase().replace(/\s+/g, '-')}`;
-        await setDoc(doc(db, 'challenges', challengeId), {
-          id: challengeId,
-          barId,
-          title: challengeTitle,
-          description: `Complete the ${challengeTitle} at ${barName}!`,
-          points: (idx + 1) * 50,
-          difficulty: idx % 2 === 0 ? 'easy' : 'medium',
-          requiresPhoto: true,
-          eventId,
-        });
+        const barChallenges = wizardChallenges.filter((c) => c.barIndex === idx);
+        for (const ch of barChallenges) {
+          const slug = ch.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+          const challengeId = `${barId}-${slug}-${ch.difficulty}`;
+          await setDoc(doc(db, 'challenges', challengeId), {
+            id: challengeId,
+            barId,
+            title: ch.title,
+            description: ch.description,
+            points: DIFF_PTS[ch.difficulty],
+            difficulty: ch.difficulty,
+            requiresPhoto: true,
+            eventId,
+          });
+        }
       }
 
       await loadData();
@@ -392,6 +449,23 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
               </div>
             )}
             <p className="mt-4 text-xs text-slate-500">Press <strong className="text-slate-300">Start Crawl</strong> when everyone is in. Routes are calculated at that point.</p>
+
+            {user && (
+              groups.some((g) => g.members?.includes(user.uid)) ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+                  You&apos;re in{' '}
+                  <span className="font-semibold text-slate-200">
+                    {groups.find((g) => g.members?.includes(user.uid))?.name}
+                  </span>{' '}
+                  for this crawl.
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs uppercase tracking-wider text-slate-500">Join as a participant</p>
+                  <GroupJoinCreate eventId={activeEvent.id} userId={user.uid} onSuccess={loadData} />
+                </div>
+              )
+            )}
           </div>
         )}
 
@@ -542,23 +616,137 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
               {wizardBars.length === 0 ? (
                 <p className="text-xs text-amber-300/80 italic">Add at least one stop.</p>
               ) : (
-                <div className="flex flex-wrap gap-2 p-3 bg-slate-950/50 rounded-2xl border border-white/5">
-                  {wizardBars.map((bar, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 bg-slate-900 border border-white/10 rounded-full pl-3 pr-2 py-1 text-xs text-slate-200"
-                    >
-                      <span className="font-semibold text-pink-400">{idx + 1}.</span>
-                      <span>{bar}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeWizardBar(idx)}
-                        className="text-slate-400 hover:text-rose-400 transition ml-1 font-bold w-4 h-4 flex items-center justify-center rounded-full hover:bg-white/10"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                <div className="flex flex-col gap-2">
+                  {wizardBars.map((bar, barIdx) => {
+                    const bcs = wizardChallenges.filter((c) => c.barIndex === barIdx);
+                    const isAdding = addingChallengeForBar === barIdx;
+                    return (
+                      <div key={barIdx} className="rounded-2xl border border-white/8 bg-slate-900/60 p-4">
+                        {/* Bar header */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm font-bold text-pink-400 shrink-0">{barIdx + 1}.</span>
+                            <span className="font-medium truncate">{bar.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              removeWizardBar(barIdx);
+                              setWizardChallenges((prev) => prev.filter((c) => c.barIndex !== barIdx).map((c) => ({ ...c, barIndex: c.barIndex > barIdx ? c.barIndex - 1 : c.barIndex })));
+                              if (addingChallengeForBar === barIdx) setAddingChallengeForBar(null);
+                            }}
+                            className="shrink-0 text-slate-600 hover:text-rose-400 transition font-bold text-lg leading-none"
+                          >×</button>
+                        </div>
+
+                        {/* Address + distance */}
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            value={bar.address}
+                            onChange={(e) => setWizardBars((prev) => prev.map((b, i) => (i === barIdx ? { ...b, address: e.target.value } : b)))}
+                            onBlur={(e) => updateWizardBarAddress(barIdx, e.target.value)}
+                            placeholder="Address (e.g. 18 Market St, Oslo)"
+                            className="flex-1 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-1.5 text-xs text-white outline-none focus:border-pink-500 placeholder:text-slate-600"
+                          />
+                          {userLocation && bar.lat !== undefined && bar.lng !== undefined && (
+                            <span className="shrink-0 rounded-full bg-violet-500/15 px-2.5 py-1 text-xs text-violet-300 font-medium">
+                              {fmtDist(haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng))} away
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Challenges list */}
+                        {bcs.length > 0 && (
+                          <div className="mt-3 space-y-1.5">
+                            {bcs.map((ch) => (
+                              <div key={ch.id} className="flex items-center gap-2 text-xs">
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 font-semibold ${
+                                  ch.difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-400'
+                                  : ch.difficulty === 'medium' ? 'bg-yellow-500/15 text-yellow-400'
+                                  : 'bg-rose-500/15 text-rose-400'
+                                }`}>{ch.difficulty} · {DIFF_PTS[ch.difficulty]}pts</span>
+                                <span className="truncate flex-1 text-slate-300">{ch.title}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setWizardChallenges((prev) => prev.filter((c) => c.id !== ch.id))}
+                                  className="shrink-0 text-slate-600 hover:text-rose-400 transition font-bold"
+                                >×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Inline add-challenge form */}
+                        {isAdding ? (
+                          <div className="mt-3 space-y-2.5 border-t border-white/8 pt-3">
+                            <div className="flex gap-1.5">
+                              {(['easy', 'medium', 'hard'] as const).map((d) => (
+                                <button
+                                  key={d}
+                                  type="button"
+                                  onClick={() => setNewChallenge((p) => ({ ...p, difficulty: d }))}
+                                  className={`flex-1 rounded-xl py-1.5 text-xs font-semibold transition ${
+                                    newChallenge.difficulty === d
+                                      ? d === 'easy' ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                        : d === 'medium' ? 'bg-yellow-500/25 text-yellow-300 border border-yellow-500/40'
+                                        : 'bg-rose-500/25 text-rose-300 border border-rose-500/40'
+                                      : 'bg-white/5 text-slate-500 border border-transparent'
+                                  }`}
+                                >
+                                  {d} · {DIFF_PTS[d]}pts
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              value={newChallenge.title}
+                              onChange={(e) => setNewChallenge((p) => ({ ...p, title: e.target.value }))}
+                              placeholder="Challenge title"
+                              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
+                            />
+                            <input
+                              value={newChallenge.description}
+                              onChange={(e) => setNewChallenge((p) => ({ ...p, description: e.target.value }))}
+                              placeholder="What do they need to do?"
+                              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-pink-500"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={!newChallenge.title.trim()}
+                                onClick={() => {
+                                  if (!newChallenge.title.trim()) return;
+                                  setWizardChallenges((prev) => [
+                                    ...prev,
+                                    { ...newChallenge, barIndex: barIdx, id: `${barIdx}-${newChallenge.difficulty}-${Date.now()}` },
+                                  ]);
+                                  setNewChallenge({ title: '', description: '', difficulty: 'easy' });
+                                  setAddingChallengeForBar(null);
+                                }}
+                                className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50 transition"
+                              >
+                                Add
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setAddingChallengeForBar(null); setNewChallenge({ title: '', description: '', difficulty: 'easy' }); }}
+                                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-400 transition hover:bg-white/10"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setAddingChallengeForBar(barIdx); setNewChallenge({ title: '', description: '', difficulty: 'easy' }); }}
+                            className="mt-3 w-full rounded-xl border border-dashed border-white/10 py-2 text-xs text-slate-500 hover:border-pink-500/30 hover:text-pink-400 transition"
+                          >
+                            + Add challenge
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -724,10 +912,9 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setEndConfirm(false)} />
           <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">End &amp; delete crawl?</h3>
+            <h3 className="text-lg font-semibold">End crawl?</h3>
             <p className="mt-2 text-sm text-slate-400">
-              This permanently deletes <strong>{activeEvent.name}</strong>, all its bars, challenges,
-              submissions, and groups. Cannot be undone.
+              This saves <strong>{activeEvent.name}</strong> permanently to all participants&apos; profiles and redirects everyone to the summary screen.
             </p>
             <div className="mt-4 flex justify-end gap-3">
               <button
@@ -740,7 +927,7 @@ const [wizardBars, setWizardBars] = useState<string[]>(['North Star', 'Velvet Ro
                 onClick={endAndDeleteCrawl}
                 className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 transition"
               >
-                End &amp; Delete
+                End &amp; Save Results
               </button>
             </div>
           </div>

@@ -22,6 +22,8 @@ export interface BarDoc {
   imageUrl?: string;
   eventId?: string;
   order: number;
+  lat?: number;
+  lng?: number;
 }
 
 export interface ChallengeDoc {
@@ -49,4 +51,40 @@ export interface SubmissionDoc {
   comment?: string;
   pointsAwarded?: number;
   eventId?: string;
+}
+
+export interface CrawlArchiveGroup {
+  id: string;
+  name: string;
+  color?: string | null;
+  score: number;
+  members: string[];
+}
+
+export interface CrawlArchiveSubmission {
+  id: string;
+  groupId: string;
+  groupName?: string | null;
+  barId: string;
+  challengeId: string;
+  photoUrl?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  pointsAwarded?: number | null;
+}
+
+export interface CrawlArchiveBar {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export interface CrawlArchive {
+  id: string;
+  eventId: string;
+  eventName: string;
+  endedAt: string;
+  memberIds: string[];
+  groups: CrawlArchiveGroup[];
+  submissions: CrawlArchiveSubmission[];
+  bars: CrawlArchiveBar[];
 }

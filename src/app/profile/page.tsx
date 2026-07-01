@@ -7,9 +7,9 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Home, Images, LogOut, ShieldCheck, Target, Trophy, User } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
-import { getActiveEvent } from '@/lib/firestore';
+import { getActiveEvent, getUserCrawlArchives } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
-import type { SubmissionDoc } from '@/lib/types';
+import type { CrawlArchive, SubmissionDoc } from '@/lib/types';
 
 const navItems = [
   { label: 'Home', href: '/', icon: Home },
@@ -27,6 +27,8 @@ export default function ProfilePage() {
   const [totalSubmissions, setTotalSubmissions] = useState(0);
   const [approvedSubmissions, setApprovedSubmissions] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [archives, setArchives] = useState<CrawlArchive[]>([]);
+  const [expandedArchiveId, setExpandedArchiveId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -56,6 +58,9 @@ export default function ProfilePage() {
 
       setTotalSubmissions(eventSubs.length);
       setApprovedSubmissions(eventSubs.filter((s) => s.status === 'approved').length);
+
+      const crawlHistory = await getUserCrawlArchives(user.uid);
+      setArchives(crawlHistory);
       setLoading(false);
     };
     load();
@@ -116,6 +121,74 @@ export default function ProfilePage() {
       </section>
 
       {/* Account actions */}
+      {archives.length > 0 && (
+        <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
+          <h2 className="text-base font-semibold mb-4">Previous crawls</h2>
+          <div className="flex flex-col gap-3">
+            {archives.map((archive) => {
+              const myGroup = archive.groups.find((g) => g.members.includes(user?.uid ?? ''));
+              const allPhotos = archive.submissions.filter((s) => s.photoUrl);
+              const isExpanded = expandedArchiveId === archive.id;
+              const rank = myGroup
+                ? [...archive.groups].sort((a, b) => b.score - a.score).findIndex((g) => g.id === myGroup.id) + 1
+                : null;
+              return (
+                <div key={archive.id} className="rounded-[1.5rem] border border-white/8 bg-white/5 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedArchiveId(isExpanded ? null : archive.id)}
+                    className="w-full flex items-start justify-between p-4 text-left hover:bg-white/5 transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{archive.eventName}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {new Date(archive.endedAt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {myGroup && ` · ${myGroup.name}`}
+                      </p>
+                    </div>
+                    <div className="ml-3 shrink-0 text-right">
+                      {myGroup && <p className="text-lg font-bold text-pink-300 tabular-nums">{myGroup.score} pts</p>}
+                      {rank && <p className="text-xs text-slate-500">#{rank} of {archive.groups.length}</p>}
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="px-4 pb-4 space-y-3">
+                      <div className="space-y-1.5">
+                        {[...archive.groups].sort((a, b) => b.score - a.score).map((g, idx) => (
+                          <div key={g.id} className="flex items-center gap-2 rounded-xl bg-slate-900/60 px-3 py-2">
+                            <span className="w-5 shrink-0 text-center text-xs font-bold text-slate-500">
+                              {idx < 3 ? ['🥇','🥈','🥉'][idx] : `#${idx + 1}`}
+                            </span>
+                            <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: g.color ?? '#f43f5e' }} />
+                            <span className="min-w-0 flex-1 truncate text-sm">{g.name}</span>
+                            <span className="shrink-0 text-sm font-bold tabular-nums text-slate-300">{g.score}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {allPhotos.length > 0 && (
+                        <div>
+                          <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">All photos</p>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {allPhotos.slice(0, 6).map((s) => (
+                              <img key={s.id} src={s.photoUrl!} alt="" className="h-20 w-full rounded-lg object-cover" />
+                            ))}
+                          </div>
+                          {allPhotos.length > 6 && (
+                            <Link href={`/summary?id=${archive.id}` as any} className="mt-2 block text-center text-xs text-pink-400 underline">
+                              See all {allPhotos.length} photos →
+                            </Link>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Account</h2>
         <div className="mt-4 flex flex-col gap-3">
