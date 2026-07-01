@@ -4,21 +4,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Home, Target, Images, Trophy, User, MapPin } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { BarDoc, EventDoc } from '@/lib/types';
-
-const navItems = [
-  { label: 'Home', href: '/', icon: Home },
-  { label: 'Challenges', href: '/challenges', icon: Target },
-  { label: 'Gallery', href: '/gallery', icon: Images },
-  { label: 'Leaderboard', href: '/leaderboard', icon: Trophy },
-  { label: 'Profile', href: '/profile', icon: User },
-] as const;
 
 const homeCache: { event: EventDoc | null; currentGroup: GroupDoc | null; allGroups: GroupDoc[]; bars: BarDoc[] } = {
   event: null,
@@ -530,24 +522,6 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* Bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
-        <div className="mx-auto flex max-w-5xl px-2 py-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.label}
-                href={item.href as any}
-                className="flex flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 text-slate-300 transition hover:bg-white/10"
-              >
-                <Icon className="h-5 w-5" aria-hidden />
-                <span className="text-[11px] font-medium">{item.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
     </main>
   );
 }
