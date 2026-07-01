@@ -264,6 +264,11 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSlot, event?.started, userLocation, orderedBars, startMs, msPerStop]);
 
+  const handleGroupJoined = (group: GroupDoc) => {
+    homeCache.currentGroup = group;
+    setCurrentGroup(group);
+  };
+
   if (loading || !user) {
     return (
       <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
