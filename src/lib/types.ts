@@ -22,6 +22,8 @@ export interface BarDoc {
   imageUrl?: string;
   eventId?: string;
   order: number;
+  lat?: number;
+  lng?: number;
 }
 
 export interface ChallengeDoc {
