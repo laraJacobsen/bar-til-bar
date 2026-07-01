@@ -8,13 +8,16 @@ import { createGroup, joinGroup, type GroupDoc } from '@/lib/group';
 export function GroupJoinCreate({
   eventId,
   userId,
+  joinOnly = false,
   onSuccess,
 }: {
   eventId: string;
   userId: string;
+  joinOnly?: boolean;
   onSuccess?: (group: GroupDoc) => void;
 }) {
   const [mode, setMode] = useState<'create' | 'join'>('create');
+  const effectiveMode = joinOnly ? 'join' : mode;
   const [groupName, setGroupName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,11 +25,11 @@ export function GroupJoinCreate({
 
   const submit = async () => {
     setError('');
-    if (mode === 'create' && !groupName.trim()) {
+    if (effectiveMode === 'create' && !groupName.trim()) {
       setError('Please name your group.');
       return;
     }
-    if (mode === 'join' && !code.trim()) {
+    if (effectiveMode === 'join' && !code.trim()) {
       setError('Please enter the group code.');
       return;
     }
@@ -34,7 +37,7 @@ export function GroupJoinCreate({
     setBusy(true);
     try {
       const group =
-        mode === 'create'
+        effectiveMode === 'create'
           ? await createGroup({ name: groupName.trim(), ownerId: userId, eventId })
           : await joinGroup({ code: code.trim(), userId, eventId });
       setGroupName('');
@@ -55,18 +58,20 @@ export function GroupJoinCreate({
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
       <p className="text-sm font-semibold text-slate-200">Join the crawl</p>
-      <p className="mt-0.5 text-xs text-slate-500">Create your own group or join one with a code.</p>
+      <p className="mt-0.5 text-xs text-slate-500">{joinOnly ? 'Enter the group code from your crew.' : 'Create your own group or join one with a code.'}</p>
 
-      <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-full border border-white/5 bg-slate-950/60 p-1">
-        <button type="button" onClick={() => setMode('create')} className={tab(mode === 'create')}>
-          Make group
-        </button>
-        <button type="button" onClick={() => setMode('join')} className={tab(mode === 'join')}>
-          Join group
-        </button>
-      </div>
+      {!joinOnly && (
+        <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-full border border-white/5 bg-slate-950/60 p-1">
+          <button type="button" onClick={() => setMode('create')} className={tab(effectiveMode === 'create')}>
+            Make group
+          </button>
+          <button type="button" onClick={() => setMode('join')} className={tab(effectiveMode === 'join')}>
+            Join group
+          </button>
+        </div>
+      )}
 
-      {mode === 'create' ? (
+      {effectiveMode === 'create' ? (
         <input
           value={groupName}
           onChange={(e) => setGroupName(e.target.value)}
@@ -92,7 +97,7 @@ export function GroupJoinCreate({
         disabled={busy}
         className="mt-3 w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:from-pink-600 hover:to-violet-600 disabled:cursor-not-allowed disabled:opacity-70"
       >
-        {busy ? 'Working…' : mode === 'create' ? 'Create group' : 'Join group'}
+        {busy ? 'Working…' : effectiveMode === 'create' ? 'Create group' : 'Join group'}
       </button>
     </div>
   );
