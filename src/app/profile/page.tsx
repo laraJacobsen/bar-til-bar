@@ -38,6 +38,8 @@ export default function ProfilePage() {
         getUserGroup(user.uid),
         getGroups(),
       ]);
+
+      // Prefer the group that's in the active event (same logic as home page)
       const eventGroups = activeEvent
         ? groups.filter((g) => g.eventId === activeEvent.id)
         : [];
@@ -45,6 +47,7 @@ export default function ProfilePage() {
         eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
       setGroup(resolvedGroup);
 
+      // Count this user's submissions in the active event
       const subsSnap = await getDocs(
         query(collection(db, 'submissions'), where('userId', '==', user.uid)),
       );
@@ -52,6 +55,7 @@ export default function ProfilePage() {
       const eventSubs = activeEvent
         ? subs.filter((s) => !s.eventId || s.eventId === activeEvent.id)
         : subs;
+
       setTotalSubmissions(eventSubs.length);
       setApprovedSubmissions(eventSubs.filter((s) => s.status === 'approved').length);
 
@@ -78,6 +82,7 @@ export default function ProfilePage() {
         <h1 className="mt-0.5 text-2xl font-semibold">{loading ? '…' : `Hey, ${displayName}`}</h1>
       </div>
 
+      {/* Avatar + group */}
       <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xl font-bold">
@@ -115,6 +120,7 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      {/* Account actions */}
       {archives.length > 0 && (
         <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
           <h2 className="text-base font-semibold mb-4">Previous crawls</h2>
