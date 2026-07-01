@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Images, Target, Trophy, User } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { InstallPromptSheet } from '@/components/InstallPromptSheet';
 
 const navItems = [
   { label: 'Home', href: '/', icon: Home },
@@ -19,7 +18,6 @@ export default function TabsLayout({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <InstallPromptSheet />
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
         <div className="mx-auto flex max-w-5xl px-2 py-2">
           {navItems.map((item) => {
