@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { collection, doc, getDocs, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { ArrowLeft, Download, Heart, Home, Images, Target, Trophy, User, X } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
@@ -20,72 +20,94 @@ const navItems = [
   { label: 'Profile', href: '/profile', icon: User },
 ] as const;
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 function GalleryContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const paramId = searchParams?.get('id') ?? null;
   const { user } = useAuth();
 
   const [photos, setPhotos] = useState<SubmissionDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [userNames, setUserNames] = useState<Record<string, string>>({});
   const [eventName, setEventName] = useState('');
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState<SubmissionDoc | null>(null);
   const [reacting, setReacting] = useState<Set<string>>(new Set());
   const isHistorical = !!paramId;
 
-  // Load groups for color dots
   useEffect(() => {
-    getGroups().then(setGroups);
-  }, []);
-
-  // Load photos — real-time for active event, one-time for past events
-  useEffect(() => {
+    let cancelled = false;
     let unsub: (() => void) | undefined;
+
+    const fetchUserNames = async (subs: SubmissionDoc[]) => {
+      const ids = Array.from(new Set(subs.map((s) => s.userId).filter(Boolean) as string[]));
+      if (!ids.length) return;
+      const results = await Promise.all(ids.map((id) => getDoc(doc(db, 'users', id))));
+      if (cancelled) return;
+      const map: Record<string, string> = {};
+      results.forEach((snap) => {
+        if (snap.exists()) map[snap.id] = (snap.data() as { displayName?: string }).displayName ?? 'Player';
+      });
+      setUserNames((prev) => ({ ...prev, ...map }));
+    };
 
     const load = async () => {
       let eventId = paramId;
 
       if (!eventId) {
         const active = await getActiveEvent();
+        if (cancelled) return;
         if (!active) { setLoading(false); return; }
         eventId = active.id;
         setEventName(active.name);
+      } else {
+        setEventName('Past Crawl');
       }
 
-      const q = query(
-        collection(db, 'submissions'),
-        where('eventId', '==', eventId),
-      );
+      // Load groups scoped to this event only
+      const allGroups = await getGroups();
+      if (cancelled) return;
+      setGroups(allGroups.filter((g) => g.eventId === eventId || !g.eventId));
+
+      const q = query(collection(db, 'submissions'), where('eventId', '==', eventId));
+
+      // Belt-and-suspenders: also filter client-side so stale Firestore cache
+      // entries from other events can never leak into this gallery.
+      const apply = (subs: SubmissionDoc[]) => {
+        if (cancelled) return;
+        const withPhotos = subs
+          .filter((s) => !!s.photoUrl && s.eventId === eventId)
+          .sort((a, b) => (b.likedBy?.length ?? 0) - (a.likedBy?.length ?? 0));
+        setPhotos(withPhotos);
+        fetchUserNames(withPhotos);
+        setLoading(false);
+      };
 
       if (!isHistorical) {
         unsub = onSnapshot(q, (snap) => {
-          const subs = snap.docs
-            .map((d) => ({ id: d.id, ...(d.data() as Omit<SubmissionDoc, 'id'>) }))
-            .filter((s) => !!s.photoUrl)
-            .sort((a, b) => (b.likedBy?.length ?? 0) - (a.likedBy?.length ?? 0));
-          setPhotos(subs);
-          setLoading(false);
+          apply(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SubmissionDoc, 'id'>) })));
         });
       } else {
         const snap = await getDocs(q);
-        const subs = snap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as Omit<SubmissionDoc, 'id'>) }))
-          .filter((s) => !!s.photoUrl)
-          .sort((a, b) => (b.likedBy?.length ?? 0) - (a.likedBy?.length ?? 0));
-        setPhotos(subs);
-        setLoading(false);
+        apply(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SubmissionDoc, 'id'>) })));
       }
     };
 
     load();
-    return () => unsub?.();
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
   }, [paramId, isHistorical]);
-
-  // If historical and no eventName, try to derive from URL or leave blank
-  useEffect(() => {
-    if (paramId && !eventName) setEventName('Past Crawl');
-  }, [paramId, eventName]);
 
   const groupById = Object.fromEntries(groups.map((g) => [g.id, g]));
 
@@ -93,7 +115,6 @@ function GalleryContent() {
     if (!user || reacting.has(sub.id)) return;
     const liked = sub.likedBy?.includes(user.uid) ?? false;
     setReacting((prev) => new Set(prev).add(sub.id));
-    // Optimistic update
     setPhotos((prev) =>
       prev
         .map((s) => {
@@ -107,18 +128,13 @@ function GalleryContent() {
     try {
       await toggleSubmissionReaction(sub.id, user.uid, liked);
     } catch {
-      // Revert on error by re-applying the original state
       setPhotos((prev) =>
         prev
           .map((s) => (s.id === sub.id ? sub : s))
           .sort((a, b) => (b.likedBy?.length ?? 0) - (a.likedBy?.length ?? 0)),
       );
     } finally {
-      setReacting((prev) => {
-        const next = new Set(prev);
-        next.delete(sub.id);
-        return next;
-      });
+      setReacting((prev) => { const n = new Set(prev); n.delete(sub.id); return n; });
     }
   };
 
@@ -136,19 +152,21 @@ function GalleryContent() {
   const backHref = paramId ? (`/summary?id=${paramId}` as any) : '/';
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6 pb-24">
+    <main className="mx-auto flex min-h-screen max-w-lg flex-col gap-0 pb-24">
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link href={backHref} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/10 text-slate-300 hover:bg-white/20 transition">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/10 bg-slate-950/95 px-4 py-3 backdrop-blur">
+        <Link
+          href={backHref}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/10 text-slate-300 hover:bg-white/20 transition"
+        >
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.35em] text-pink-200">Gallery</p>
-          <h1 className="truncate text-xl font-semibold leading-tight">{eventName || 'Tonight'}</h1>
+          <h1 className="truncate text-base font-semibold">{eventName || 'Gallery'}</h1>
         </div>
         {photos.length > 0 && (
-          <span className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-xs text-slate-400">
+          <span className="shrink-0 text-xs text-slate-500">
             {photos.length} photo{photos.length !== 1 ? 's' : ''}
           </span>
         )}
@@ -159,159 +177,179 @@ function GalleryContent() {
           <p className="text-sm text-slate-400">Loading photos…</p>
         </div>
       ) : photos.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-[2rem] border border-dashed border-white/10 bg-white/5 py-20 text-center">
+        <div className="mx-4 mt-8 flex flex-col items-center justify-center gap-3 rounded-[2rem] border border-dashed border-white/10 bg-white/5 py-20 text-center">
           <p className="text-3xl">📷</p>
           <p className="text-sm text-slate-400">No photos yet — complete challenges to add some!</p>
         </div>
       ) : (
-        <>
-          {/* Top 3 most loved */}
-          {photos[0]?.likedBy?.length ? (
-            <section className="rounded-[2rem] border border-pink-500/20 bg-pink-500/8 p-4">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-pink-300">Most loved</p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {photos.slice(0, 3).filter((p) => (p.likedBy?.length ?? 0) > 0).map((p) => {
-                  const g = groupById[p.groupId];
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setLightbox(p)}
-                      className="relative shrink-0 overflow-hidden rounded-xl"
-                      style={{ width: 100, height: 100 }}
-                    >
-                      <img src={p.photoUrl!} alt="" className="h-full w-full object-cover" />
-                      <div className="absolute bottom-0 inset-x-0 flex items-center justify-center gap-1 bg-black/60 py-1 text-xs text-white">
-                        <Heart className="h-3 w-3 fill-rose-400 text-rose-400" />
-                        <span>{p.likedBy?.length ?? 0}</span>
-                      </div>
-                      {g && (
-                        <span className="absolute top-1.5 left-1.5 inline-block h-2 w-2 rounded-full border border-white/40" style={{ background: g.color ?? '#f43f5e' }} />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
+        <div className="flex flex-col divide-y divide-white/8">
+          {photos.map((sub) => {
+            const g = groupById[sub.groupId];
+            const liked = user ? (sub.likedBy?.includes(user.uid) ?? false) : false;
+            const likeCount = sub.likedBy?.length ?? 0;
+            const displayName = (sub.userId && userNames[sub.userId]) || sub.groupName || 'Player';
+            const initial = displayName.charAt(0).toUpperCase();
+            const groupColor = g?.color ?? '#f43f5e';
 
-          {/* Full grid */}
-          <div className="grid grid-cols-2 gap-3">
-            {photos.map((sub) => {
-              const g = groupById[sub.groupId];
-              const liked = user ? (sub.likedBy?.includes(user.uid) ?? false) : false;
-              const likeCount = sub.likedBy?.length ?? 0;
-              return (
-                <div key={sub.id} className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/5">
-                  {/* Photo */}
-                  <button
-                    type="button"
-                    onClick={() => setLightbox(sub)}
-                    className="relative block w-full overflow-hidden"
-                    style={{ aspectRatio: '1 / 1' }}
+            return (
+              <article key={sub.id} className="flex flex-col bg-slate-950">
+
+                {/* Post header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  {/* Avatar */}
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                    style={{ background: `linear-gradient(135deg, ${groupColor}cc, ${groupColor}66)`, border: `2px solid ${groupColor}55` }}
                   >
-                    <img src={sub.photoUrl!} alt="" className="h-full w-full object-cover transition duration-200 hover:scale-105" />
-                    {g && (
-                      <div className="absolute bottom-0 inset-x-0 flex items-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6">
-                        <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: g.color ?? '#f43f5e' }} />
-                        <p className="truncate text-[11px] font-medium text-white">{g.name}</p>
-                      </div>
-                    )}
-                  </button>
+                    {initial}
+                  </div>
 
-                  {/* Action bar */}
-                  <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleReaction(sub)}
-                      disabled={!user || reacting.has(sub.id)}
-                      className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                        liked
-                          ? 'bg-rose-500/20 text-rose-400'
-                          : 'bg-white/8 text-slate-400 hover:bg-white/15 hover:text-slate-200'
-                      }`}
-                    >
-                      <Heart className={`h-4 w-4 ${liked ? 'fill-rose-400' : ''}`} />
-                      <span className="tabular-nums">{likeCount > 0 ? likeCount : ''}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(sub.photoUrl!, sub.id)}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8 text-slate-400 transition hover:bg-white/15 hover:text-slate-200"
-                      title="Download"
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
+                  {/* Name + group + time */}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-white leading-tight">{displayName}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: groupColor }} />
+                      <span className="text-xs text-slate-400 truncate">{g?.name ?? sub.groupName ?? 'Unknown group'}</span>
+                      <span className="text-slate-600 text-xs">·</span>
+                      <span className="text-xs text-slate-500 shrink-0">{sub.createdAt ? timeAgo(sub.createdAt) : ''}</span>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </>
+
+                {/* Photo — tap to open lightbox */}
+                <button
+                  type="button"
+                  onClick={() => setLightbox(sub)}
+                  onDoubleClick={() => !liked && handleReaction(sub)}
+                  className="relative block w-full overflow-hidden bg-slate-900"
+                  style={{ aspectRatio: '1 / 1' }}
+                >
+                  <img
+                    src={sub.photoUrl!}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+
+                {/* Action bar */}
+                <div className="flex items-center justify-between px-4 py-3">
+                  {/* Heart + count */}
+                  <button
+                    type="button"
+                    onClick={() => handleReaction(sub)}
+                    disabled={!user || reacting.has(sub.id)}
+                    className="flex items-center gap-2 transition active:scale-90"
+                  >
+                    <Heart
+                      className={`h-6 w-6 transition-all duration-150 ${liked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-slate-300'}`}
+                    />
+                    <span className={`text-sm font-semibold tabular-nums ${liked ? 'text-rose-400' : 'text-slate-300'}`}>
+                      {likeCount > 0 ? likeCount : ''}
+                    </span>
+                  </button>
+
+                  {/* Download */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(sub.photoUrl!, sub.id)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:text-slate-200 active:scale-90"
+                    title="Save photo"
+                  >
+                    <Download className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Like label */}
+                {likeCount > 0 && (
+                  <p className="px-4 pb-3 -mt-1 text-xs text-slate-500">
+                    {likeCount === 1 ? '1 like' : `${likeCount} likes`}
+                  </p>
+                )}
+              </article>
+            );
+          })}
+        </div>
       )}
 
       {/* Lightbox */}
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
-          onClick={() => setLightbox(null)}
-        >
-          <button
-            type="button"
-            onClick={() => setLightbox(null)}
-            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition"
-          >
-            <X className="h-5 w-5" />
-          </button>
-
+      {lightbox && (() => {
+        const g = groupById[lightbox.groupId];
+        const liked = user ? (lightbox.likedBy?.includes(user.uid) ?? false) : false;
+        const displayName = (lightbox.userId && userNames[lightbox.userId]) || lightbox.groupName || 'Player';
+        const groupColor = g?.color ?? '#f43f5e';
+        return (
           <div
-            className="flex w-full max-w-lg flex-col gap-3"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex flex-col bg-black"
+            onClick={() => setLightbox(null)}
           >
-            <img
-              src={lightbox.photoUrl!}
-              alt=""
-              className="w-full rounded-2xl object-contain"
-              style={{ maxHeight: '70vh' }}
-            />
+            {/* Lightbox header */}
+            <div
+              className="flex items-center gap-3 px-4 py-3 bg-black/80"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                style={{ background: `linear-gradient(135deg, ${groupColor}cc, ${groupColor}66)` }}
+              >
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white leading-tight">{displayName}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: groupColor }} />
+                  <span className="text-xs text-slate-400 truncate">{g?.name ?? lightbox.groupName ?? 'Unknown group'}</span>
+                  <span className="text-slate-600 text-xs">·</span>
+                  <span className="text-xs text-slate-500">{lightbox.createdAt ? timeAgo(lightbox.createdAt) : ''}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLightbox(null)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Lightbox photo */}
+            <div className="flex flex-1 items-center justify-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={lightbox.photoUrl!}
+                alt=""
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
 
             {/* Lightbox actions */}
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
-              <div className="flex items-center gap-2">
-                {groupById[lightbox.groupId] && (
-                  <>
-                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: groupById[lightbox.groupId].color ?? '#f43f5e' }} />
-                    <p className="text-sm font-medium text-slate-200">{groupById[lightbox.groupId].name}</p>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleReaction(lightbox)}
-                  disabled={!user || reacting.has(lightbox.id)}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                    user && (lightbox.likedBy?.includes(user.uid) ?? false)
-                      ? 'bg-rose-500/20 text-rose-400'
-                      : 'bg-white/10 text-slate-300 hover:bg-white/20'
-                  }`}
-                >
-                  <Heart className={`h-4 w-4 ${user && (lightbox.likedBy?.includes(user.uid) ?? false) ? 'fill-rose-400' : ''}`} />
-                  <span>{lightbox.likedBy?.length ?? 0}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownload(lightbox.photoUrl!, lightbox.id)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-slate-300 transition hover:bg-white/20"
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-              </div>
+            <div
+              className="flex items-center justify-between bg-black/80 px-4 py-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => handleReaction(lightbox)}
+                disabled={!user || reacting.has(lightbox.id)}
+                className="flex items-center gap-2 transition active:scale-90"
+              >
+                <Heart
+                  className={`h-7 w-7 transition-all duration-150 ${liked ? 'fill-rose-500 text-rose-500' : 'text-white'}`}
+                />
+                <span className={`text-base font-semibold tabular-nums ${liked ? 'text-rose-400' : 'text-slate-200'}`}>
+                  {(lightbox.likedBy?.length ?? 0) > 0 ? `${lightbox.likedBy!.length} ${lightbox.likedBy!.length === 1 ? 'like' : 'likes'}` : 'Like'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDownload(lightbox.photoUrl!, lightbox.id)}
+                className="flex items-center gap-2 text-slate-300 hover:text-white transition active:scale-90"
+              >
+                <Download className="h-5 w-5" />
+                <span className="text-sm">Save</span>
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-slate-950/95">
