@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/components/AuthProvider';
+import { GroupJoinCreate } from '@/components/GroupJoinCreate';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
 import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
@@ -38,6 +40,7 @@ function fmtDist(km: number): string {
 }
 
 export default function AdminPage() {
+  const { user } = useAuth();
   const [bars, setBars] = useState<BarDoc[]>([]);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
@@ -446,6 +449,23 @@ export default function AdminPage() {
               </div>
             )}
             <p className="mt-4 text-xs text-slate-500">Press <strong className="text-slate-300">Start Crawl</strong> when everyone is in. Routes are calculated at that point.</p>
+
+            {user && (
+              groups.some((g) => g.members?.includes(user.uid)) ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
+                  You&apos;re in{' '}
+                  <span className="font-semibold text-slate-200">
+                    {groups.find((g) => g.members?.includes(user.uid))?.name}
+                  </span>{' '}
+                  for this crawl.
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs uppercase tracking-wider text-slate-500">Join as a participant</p>
+                  <GroupJoinCreate eventId={activeEvent.id} userId={user.uid} onSuccess={loadData} />
+                </div>
+              )
+            )}
           </div>
         )}
 
