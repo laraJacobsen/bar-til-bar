@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Home, Target, Images, Trophy, User, MapPin } from 'lucide-react';
+import { Home, Target, Images, Trophy, User, MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -51,6 +52,30 @@ function mapsUrl(bar: BarDoc): string | null {
   return null;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function fmtDist(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
+
+function mapsUrl(bar: BarDoc): string | null {
+  if (bar.lat != null && bar.lng != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${bar.lat},${bar.lng}`;
+  }
+  if (bar.address) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(bar.address)}`;
+  }
+  return null;
+}
+
 // Derives the current slot and countdown from the event schedule — no Firestore
 // write needed. Slot advances automatically when time crosses the boundary.
 // Shows a "Move!" warning for the last 10 minutes of each stop.
@@ -58,6 +83,8 @@ function useSchedule(
   startMs: number | null,
   endMs: number | null,
   numSlots: number,
+): { slot: number; countdown: string; isWarning: boolean; remainingMs: number } {
+  const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false, remainingMs: 0 });
 ): { slot: number; countdown: string; isWarning: boolean; remainingMs: number } {
   const [state, setState] = useState({ slot: 0, countdown: '', isWarning: false, remainingMs: 0 });
 
@@ -79,6 +106,7 @@ function useSchedule(
         countdown: remaining === 0 ? 'Time to move!' : isWarning ? `Move! ${timeStr}` : timeStr,
         isWarning,
         remainingMs: remaining,
+        remainingMs: remaining,
       });
     };
 
@@ -97,6 +125,7 @@ export default function HomePage() {
   const [currentGroup, setCurrentGroup] = useState<GroupDoc | null>(homeCache.currentGroup);
   const [allGroups, setAllGroups] = useState<GroupDoc[]>(homeCache.allGroups);
   const [bars, setBars] = useState<BarDoc[]>(homeCache.bars);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -146,9 +175,18 @@ export default function HomePage() {
     );
   }, []);
 
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {},
+    );
+  }, []);
+
   // Real-time: pushes event.started / crawl-ended to all clients
   const wasStartedRef = useRef(false);
   const lastEventIdRef = useRef<string | null>(null);
+  const notifiedForSlot = useRef<number>(-1);
   const notifiedForSlot = useRef<number>(-1);
   useEffect(() => {
     if (!user) return;
@@ -198,6 +236,7 @@ export default function HomePage() {
 
   // Time-based schedule: slot advances automatically when the slot boundary
   // passes — no Firestore write required. isWarning fires at 10 min remaining.
+  const { slot: liveSlot, countdown, isWarning, remainingMs } = useSchedule(
   const { slot: liveSlot, countdown, isWarning, remainingMs } = useSchedule(
     event?.started ? startMs : null,
     event?.started ? endMs : null,
@@ -332,8 +371,11 @@ export default function HomePage() {
             </Link>
           ) : event ? (
             <GroupJoinCreate eventId={event.id} userId={user.uid} joinOnly={!!event.started} onSuccess={handleGroupJoined} />
+          ) : event ? (
+            <GroupJoinCreate eventId={event.id} userId={user.uid} joinOnly={!!event.started} onSuccess={handleGroupJoined} />
           ) : (
             <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-500">
+              No group yet — get the crawl code from your organiser.
               No group yet — get the crawl code from your organiser.
             </div>
           )}
@@ -341,10 +383,22 @@ export default function HomePage() {
 
         {/* Current stop info + countdown */}
         {event?.started && currentGroup && orderedBars.length > 0 && (
+        {event?.started && currentGroup && orderedBars.length > 0 && (
           <div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3">
             <div>
               <p className="text-xs text-slate-500 uppercase tracking-wider">Now at</p>
               <p className="font-semibold text-white mt-0.5">{currentBar?.name ?? '—'}</p>
+              {currentBar && mapsUrl(currentBar) && (
+                <a
+                  href={mapsUrl(currentBar)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 flex w-fit items-center gap-1 text-xs text-pink-300 hover:text-pink-200 transition"
+                >
+                  <MapPin className="h-3 w-3" />
+                  Get directions
+                </a>
+              )}
               {currentBar && mapsUrl(currentBar) && (
                 <a
                   href={mapsUrl(currentBar)!}
@@ -368,6 +422,17 @@ export default function HomePage() {
                     : `${walkToNextMin} min walk to ${nextBar.name}`}
                 </p>
               )}
+              {nextBar && walkToNextMin != null && (
+                <p className={`text-xs mt-1.5 font-medium ${
+                  leaveInMin != null && leaveInMin <= 0 ? 'text-rose-400' : 'text-slate-400'
+                }`}>
+                  {leaveInMin != null && leaveInMin <= 0
+                    ? `Head to ${nextBar.name} now! (${walkToNextMin} min walk)`
+                    : leaveInMin != null
+                    ? `Leave in ${leaveInMin}m · ${walkToNextMin} min walk to ${nextBar.name}`
+                    : `${walkToNextMin} min walk to ${nextBar.name}`}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Time left</p>
@@ -379,6 +444,7 @@ export default function HomePage() {
         )}
 
         {/* Dot progress bar */}
+        {event?.started && currentGroup && orderedBars.length > 0 && (
         {event?.started && currentGroup && orderedBars.length > 0 && (
           <div className="mt-3 flex gap-1.5">
             {orderedBars.map((_, idx) => (
@@ -396,6 +462,7 @@ export default function HomePage() {
 
         {/* CTA */}
         {event?.started && currentGroup ? (
+        {event?.started && currentGroup ? (
           <Link
             href="/challenges"
             className="mt-4 flex w-full items-center justify-center rounded-full bg-white px-4 py-3 font-semibold text-slate-900 hover:bg-slate-100 transition"
@@ -403,12 +470,16 @@ export default function HomePage() {
             Go to Current Challenge
           </Link>
         ) : !event?.started ? (
+        ) : !event?.started ? (
           <div className="mt-4 flex w-full items-center justify-center rounded-full bg-white/10 px-4 py-3 text-sm font-semibold text-slate-500 cursor-not-allowed select-none">
             Waiting for leader to start
           </div>
         ) : null}
+        ) : null}
       </section>
 
+      {/* Tonight's flow — only shown once crawl is live and user has a group */}
+      {event?.started && currentGroup && orderedBars.length > 0 && (
       {/* Tonight's flow — only shown once crawl is live and user has a group */}
       {event?.started && currentGroup && orderedBars.length > 0 && (
         <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
@@ -430,6 +501,11 @@ export default function HomePage() {
                 const isCurrent = idx === currentSlot;
                 const arrivalMs = startMs && msPerStop != null ? startMs + idx * msPerStop : null;
                 const meetingGroups = meetingGroupsAtSlot(idx);
+                const distKm =
+                  userLocation && bar.lat != null && bar.lng != null
+                    ? haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng)
+                    : null;
+                const barUrl = mapsUrl(bar);
                 const distKm =
                   userLocation && bar.lat != null && bar.lng != null
                     ? haversineKm(userLocation.lat, userLocation.lng, bar.lat, bar.lng)
@@ -489,9 +565,45 @@ export default function HomePage() {
                             </svg>
                           )}
                         </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {barUrl && !isDone && (
+                            <a
+                              href={barUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-slate-500 hover:text-pink-300 transition"
+                              aria-label={`Directions to ${bar.name}`}
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                          {isCurrent && (
+                            <span className="rounded-full bg-pink-500/20 px-2.5 py-0.5 text-[11px] font-semibold text-pink-300 animate-pulse">
+                              Now
+                            </span>
+                          )}
+                          {isDone && (
+                            <svg className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {arrivalMs && (
+                            <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
+                              {fmt(arrivalMs)} – {fmt(arrivalMs + (msPerStop ?? 0))}
+                            </p>
+                          )}
+                          {distKm != null && (
+                            <span className={`text-xs ${isDone ? 'text-slate-600' : 'text-slate-500'}`}>
+                              · {fmtDist(distKm)} (~{Math.ceil(distKm * 12)} min walk)
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2">
                           {arrivalMs && (
                             <p className={`text-xs ${isDone ? 'text-slate-600' : isCurrent ? 'text-pink-300' : 'text-slate-600'}`}>
@@ -520,6 +632,7 @@ export default function HomePage() {
                           </div>
                         )}
                       </div>
+
 
                     </div>
                   </li>
