@@ -6,6 +6,7 @@ import { Camera } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
+import { PageSkeleton } from '@/components/PageSkeleton';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, getChallenges } from '@/lib/firestore';
 import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
@@ -121,11 +122,7 @@ export default function ChallengesPage() {
   };
 
   if (loading) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4">
-        <p className="text-slate-400 text-sm">Loading…</p>
-      </main>
-    );
+    return <PageSkeleton />;
   }
 
   if (!event?.started) {

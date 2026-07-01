@@ -8,6 +8,7 @@ import { MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
+import { PageSkeleton } from '@/components/PageSkeleton';
 import { getActiveEvent, getBars, seedDemoData } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
 import type { BarDoc, EventDoc } from '@/lib/types';
@@ -261,14 +262,7 @@ export default function HomePage() {
   };
 
   if (loading || !user) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-4 py-6">
-        <div className="rounded-[2rem] border border-white/10 bg-white/10 px-6 py-8 text-center">
-          <p className="text-sm uppercase tracking-[0.35em] text-pink-200">Bar Til Bar</p>
-          <h1 className="mt-2 text-2xl font-semibold">Loading…</h1>
-        </div>
-      </main>
-    );
+    return <PageSkeleton />;
   }
 
   return (

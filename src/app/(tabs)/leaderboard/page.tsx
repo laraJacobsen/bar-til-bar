@@ -77,9 +77,21 @@ export default function LeaderboardPage() {
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center py-20">
-          <p className="text-sm text-slate-400">Loading…</p>
-        </div>
+        <section className="flex flex-col gap-2">
+          {Array.from({ length: 5 }).map((_, idx) => (
+            <div
+              key={idx}
+              className="flex items-center gap-4 rounded-[1.5rem] border border-white/8 bg-white/5 px-4 py-3.5"
+            >
+              <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/10" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="h-4 w-32 animate-pulse rounded-full bg-white/10" />
+                <div className="h-3 w-24 animate-pulse rounded-full bg-white/10" />
+              </div>
+              <div className="h-6 w-10 shrink-0 animate-pulse rounded-full bg-white/10" />
+            </div>
+          ))}
+        </section>
       ) : groups.length === 0 ? (
         <section className="rounded-[2rem] border border-dashed border-white/10 bg-white/5 p-10 text-center">
           <p className="text-slate-400 text-sm">No groups yet — crawl hasn't started.</p>
