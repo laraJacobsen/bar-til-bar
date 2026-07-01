@@ -3,7 +3,8 @@
 
 type UploadParams =
   | { kind: 'submission'; groupId: string; challengeId: string }
-  | { kind: 'group-picture'; groupId: string };
+  | { kind: 'group-picture'; groupId: string }
+  | { kind: 'profile-picture'; userId: string };
 
 export async function uploadToR2(file: File, params: UploadParams): Promise<string> {
   const presignRes = await fetch('/api/r2/presign', {

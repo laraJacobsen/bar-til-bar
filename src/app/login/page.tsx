@@ -2,12 +2,16 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
 export default function LoginPage() {
   const router = useRouter();
   const { user, loading, signIn } = useAuth();
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [mode, setMode] = useState<'create' | 'join' | 'admin'>('create');
   const [groupName, setGroupName] = useState('');
@@ -22,6 +26,20 @@ export default function LoginPage() {
       router.replace('/');
     }
   }, [loading, user, router]);
+
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
+  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.files?.[0];
+    if (!next) return;
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(next);
+    setPhotoPreview(URL.createObjectURL(next));
+  };
 
   const handleGoogleSignIn = async () => {
     setBusy(true);
@@ -46,6 +64,7 @@ export default function LoginPage() {
         mode === 'create' ? groupName.trim() : undefined,
         mode === 'join' ? code.trim() : undefined,
         mode !== 'admin' ? crawlCode.trim() : undefined,
+        photoFile ?? undefined,
       );
 
       if (mode === 'create' && result?.createdGroupCode) {
@@ -73,6 +92,34 @@ export default function LoginPage() {
         </p>
 
         <div className="mt-6 space-y-3 text-left">
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              className="group relative h-20 w-20 overflow-hidden rounded-full border border-white/10 bg-slate-900/70 transition hover:border-pink-400/40"
+              aria-label="Add profile photo"
+            >
+              {photoPreview ? (
+                <img src={photoPreview} alt="Profile preview" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-pink-500/30 to-violet-500/30">
+                  <Camera className="h-6 w-6 text-pink-200" aria-hidden />
+                </span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 bg-slate-950/70 py-0.5 text-center text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">
+                Change
+              </span>
+            </button>
+            <p className="text-xs text-slate-500">{photoPreview ? 'Tap to change photo' : 'Add a profile photo (optional)'}</p>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+              className="hidden"
+            />
+          </div>
+
           <label className="block text-sm text-slate-300">
             Display name
             <input

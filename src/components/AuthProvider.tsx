@@ -6,11 +6,13 @@ import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
 import { createGroup, joinGroup } from '@/lib/group';
 import { getEventByJoinCode } from '@/lib/firestore';
+import { uploadToR2 } from '@/lib/upload';
 
 export type DbUser = {
   uid: string;
   email: string | null;
   displayName: string;
+  photoURL?: string | null;
   role: 'group' | 'admin';
   updatedAt: string;
 } | null;
@@ -19,7 +21,7 @@ type AuthContextValue = {
   user: User | null;
   dbUser: DbUser | null;
   loading: boolean;
-  signIn: (displayName?: string, role?: 'group' | 'admin', mode?: 'create' | 'join', groupName?: string, code?: string, crawlCode?: string) => Promise<{ createdGroupCode?: string } | undefined>;
+  signIn: (displayName?: string, role?: 'group' | 'admin', mode?: 'create' | 'join', groupName?: string, code?: string, crawlCode?: string, photoFile?: File) => Promise<{ createdGroupCode?: string } | undefined>;
   signOutUser: () => Promise<void>;
 };
 
@@ -64,15 +66,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mode?: 'create' | 'join',
     groupName?: string,
     code?: string,
-    crawlCode?: string
+    crawlCode?: string,
+    photoFile?: File
   ) => {
     const result = await signInWithPopup(auth, googleProvider);
     const nextUser = result.user;
+
+    // Upload the chosen profile image (if any) now that we have a uid. Fall back
+    // to Google's avatar so the profile is never empty.
+    let photoURL: string | null = nextUser.photoURL ?? null;
+    if (photoFile) {
+      try {
+        photoURL = await uploadToR2(photoFile, { kind: 'profile-picture', userId: nextUser.uid });
+      } catch (err) {
+        console.error('Profile image upload failed:', err);
+      }
+    }
 
     const userData: Record<string, unknown> = {
       uid: nextUser.uid,
       email: nextUser.email,
       displayName: displayName || nextUser.displayName || 'Traveler',
+      photoURL,
       updatedAt: new Date().toISOString(),
     };
     if (role === 'admin') userData.role = 'admin';
