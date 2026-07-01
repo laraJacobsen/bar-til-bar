@@ -91,7 +91,13 @@ export default function LoginPage() {
     setBusy(true);
     setError('');
     try {
-      const { suggestedName } = await authenticate();
+      const { suggestedName, onboardingComplete, role: existingRole } = await authenticate();
+      // Returning user who already finished setup (e.g. signed out mid-event): skip the
+      // whole flow and drop them straight back into the app — no re-entering name/group.
+      if (onboardingComplete) {
+        router.replace(existingRole === 'admin' ? '/admin' : '/');
+        return;
+      }
       setScreenName((prev) => prev || suggestedName);
       goNext();
     } catch (err) {

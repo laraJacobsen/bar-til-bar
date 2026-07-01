@@ -34,8 +34,9 @@ type AuthContextValue = {
   user: User | null;
   dbUser: DbUser | null;
   loading: boolean;
-  /** Step 1: run the Google popup and write a minimal user doc. Onboarding is still incomplete. */
-  authenticate: () => Promise<{ suggestedName: string }>;
+  /** Step 1: run the Google popup and write a minimal user doc. Reports whether this
+   *  account has already finished onboarding so the flow can skip straight into the app. */
+  authenticate: () => Promise<{ suggestedName: string; onboardingComplete: boolean; role?: 'group' | 'admin' }>;
   /** Final step: resolve the crawl code, create/join the group, and mark onboarding complete. */
   completeOnboarding: (args: CompleteOnboardingArgs) => Promise<{ createdGroupCode?: string }>;
   signOutUser: () => Promise<void>;
@@ -79,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Step 1 of onboarding: run the Google popup and write a *minimal* user doc.
   // The user is authenticated afterwards but onboarding is still incomplete —
   // no role/group yet. That happens in completeOnboarding().
-  const authenticate = async (): Promise<{ suggestedName: string }> => {
+  const authenticate = async (): Promise<{ suggestedName: string; onboardingComplete: boolean; role?: 'group' | 'admin' }> => {
     const result = await signInWithPopup(auth, googleProvider);
     const nextUser = result.user;
     const userRef = doc(db, 'users', nextUser.uid);
@@ -102,7 +103,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setDoc(userRef, userData, { merge: true });
 
     const suggestedName = (existing.displayName as string) || googleName || '';
-    return { suggestedName };
+    return {
+      suggestedName,
+      onboardingComplete: existing.onboardingComplete === true,
+      role: existing.role as 'group' | 'admin' | undefined,
+    };
   };
 
   // Final step: resolve the crawl code, create/join the group, and mark onboarding
