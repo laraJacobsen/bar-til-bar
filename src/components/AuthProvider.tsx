@@ -14,6 +14,7 @@ export type DbUser = {
   displayName: string;
   /** The real Google account name, kept separate so it never clobbers the screen name. */
   accountName?: string | null;
+  photoURL?: string | null;
   role?: 'group' | 'admin';
   /** True once the user has finished the onboarding flow (chosen a role + set up a group). */
   onboardingComplete?: boolean;
@@ -99,6 +100,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // never clobber a screen name the user edited on a previous visit.
     if (!existing.displayName) {
       userData.displayName = googleName || 'Traveler';
+    }
+    // Seed the avatar from the Google account so the profile is never empty, but
+    // never clobber a custom photo the user set later on the profile page.
+    if (!existing.photoURL && nextUser.photoURL) {
+      userData.photoURL = nextUser.photoURL;
     }
     await setDoc(userRef, userData, { merge: true });
 

@@ -1,11 +1,22 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/components/AuthProvider';
+import { InstallPromptSheet } from '@/components/InstallPromptSheet';
+import { PullToRefresh } from '@/components/PullToRefresh';
 
 export const metadata: Metadata = {
   title: 'Bar Til Bar',
   description: 'A playful mobile-first bar crawl companion app.',
   manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Bar Til Bar',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/icon-192.png',
+  },
 };
 
 export const viewport: Viewport = {
@@ -21,7 +32,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="h-full bg-slate-950">
       <body className="min-h-screen bg-slate-950 text-slate-100 antialiased">
         <AuthProvider>
+          <PullToRefresh />
           <div className="min-h-screen bg-slate-950">{children}</div>
+          <InstallPromptSheet />
         </AuthProvider>
       </body>
     </html>
