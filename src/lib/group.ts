@@ -198,29 +198,6 @@ export async function advanceAllGroupsToNextBar(groupIds: string[], currentBarIn
   return nextBarIndex;
 }
 
-export function buildBarMeetups(groupNames: string[], barNames: string[]) {
-  const labels = groupNames.length >= 4 ? groupNames.slice(0, 4) : [
-    ...groupNames,
-    ...Array.from({ length: 4 - groupNames.length }, (_, idx) => `Group ${groupNames.length + idx + 1}`),
-  ];
-
-  const bars = barNames.length >= 4 ? barNames.slice(0, 4) : [
-    ...barNames,
-    ...Array.from({ length: 4 - barNames.length }, (_, idx) => `Bar ${barNames.length + idx + 1}`),
-  ];
-
-  return [
-    { name: bars[0], groups: [labels[0], labels[1]] },
-    { name: bars[1], groups: [labels[0], labels[2]] },
-    { name: bars[2], groups: [labels[1], labels[3]] },
-    { name: bars[3], groups: [labels[2], labels[3]] },
-  ];
-}
-
-export async function updateGroupScore(groupId: string, newScore: number) {
-  await setDoc(doc(db, 'groups', groupId), { score: newScore }, { merge: true });
-}
-
 export async function adjustGroupScore(groupId: string, delta: number): Promise<void> {
   await updateDoc(doc(db, 'groups', groupId), { score: increment(delta) });
 }

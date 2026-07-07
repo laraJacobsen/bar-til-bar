@@ -22,3 +22,13 @@ export function detectStandalone(): boolean {
   if (window.matchMedia('(display-mode: standalone)').matches) return true;
   return (window.navigator as unknown as { standalone?: boolean }).standalone === true;
 }
+
+export const INSTALL_DISMISS_KEY = 'installPromptDismissed';
+export const OPEN_INSTALL_EVENT = 'bartilbar:open-install';
+
+// Re-open the global InstallPromptSheet on demand (e.g. the profile button),
+// clearing the once-per-session dismiss so it can show again. Client-only.
+export function openInstallSheet(): void {
+  sessionStorage.removeItem(INSTALL_DISMISS_KEY);
+  window.dispatchEvent(new Event(OPEN_INSTALL_EVENT));
+}

@@ -93,12 +93,6 @@ export async function getEventByJoinCode(joinCode: string): Promise<EventDoc | n
   return { id: d.id, ...(d.data() as Omit<EventDoc, 'id'>) };
 }
 
-export async function getEventById(id: string): Promise<EventDoc | null> {
-  const snap = await getDoc(doc(db, 'events', id));
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<EventDoc, 'id'>) };
-}
-
 export async function getEvents(): Promise<EventDoc[]> {
   const snapshot = await getDocs(collection(db, 'events'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<EventDoc, 'id'>) }));
@@ -114,12 +108,6 @@ export async function getBars(): Promise<BarDoc[]> {
 export async function getChallenges(): Promise<ChallengeDoc[]> {
   const snapshot = await getDocs(collection(db, 'challenges'));
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as Omit<ChallengeDoc, 'id'>) }));
-}
-
-export async function getChallengeById(challengeId: string): Promise<ChallengeDoc | null> {
-  const snap = await getDoc(doc(db, 'challenges', challengeId));
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<ChallengeDoc, 'id'>) };
 }
 
 export async function createSubmission(input: { userId: string; groupId: string; groupName?: string; barId: string; challengeId: string; photoUrl: string; pointsAwarded?: number; eventId?: string }) {

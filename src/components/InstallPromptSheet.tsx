@@ -6,12 +6,13 @@ import { Check, Compass, Copy, Download, Plus, Share, X } from 'lucide-react';
 import {
   detectIOSKind,
   detectStandalone,
+  INSTALL_DISMISS_KEY as DISMISS_KEY,
+  OPEN_INSTALL_EVENT,
   type BeforeInstallPromptEvent,
   type IOSKind,
 } from '@/lib/install';
 
 const GRADIENT = 'linear-gradient(135deg,#ff5aa8 0%,#c42ad6 52%,#7c3aed 100%)';
-const DISMISS_KEY = 'installPromptDismissed';
 const SHOW_DELAY_MS = 2000;
 
 type Mode = 'cta' | 'guide';
@@ -58,6 +59,19 @@ export function InstallPromptSheet() {
 
     const timer = window.setTimeout(() => setOpen(true), SHOW_DELAY_MS);
     return () => window.clearTimeout(timer);
+  }, [installed, prompt, iosKind]);
+
+  // Re-open on demand (profile button). Ignore if there's nothing to install.
+  useEffect(() => {
+    const onOpenRequest = () => {
+      const canPrompt = !!prompt;
+      const canGuide = iosKind !== 'none' && !prompt;
+      if (installed || (!canPrompt && !canGuide)) return;
+      setMode('cta');
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_INSTALL_EVENT, onOpenRequest);
+    return () => window.removeEventListener(OPEN_INSTALL_EVENT, onOpenRequest);
   }, [installed, prompt, iosKind]);
 
   const dismiss = () => {
