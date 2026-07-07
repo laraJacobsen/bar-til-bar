@@ -7,7 +7,6 @@ import {
   persistentMultipleTabManager,
   type Firestore,
 } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'demo-key',
@@ -39,4 +38,3 @@ function initDb(): Firestore {
 }
 
 export const db = initDb();
-export const storage = getStorage(app);
