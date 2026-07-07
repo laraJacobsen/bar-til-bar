@@ -3,7 +3,9 @@ import withPWA from 'next-pwa';
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    typedRoutes: true,
+    // Turbopack (next dev --turbo) doesn't support typedRoutes and hard-errors on it.
+    // Keep it for `next build` (webpack); disable only under turbo. TURBOPACK is set by --turbo.
+    typedRoutes: !process.env.TURBOPACK,
   },
 };
 
