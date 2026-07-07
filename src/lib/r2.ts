@@ -14,6 +14,11 @@ export const r2 = new S3Client({
   endpoint: accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined,
   credentials:
     accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined,
+  // AWS SDK ≥3.729 adds a CRC32 integrity checksum by default. On presigned PUTs
+  // this signs x-amz-checksum-* headers that the browser fetch never sends, so R2
+  // rejects the upload with SignatureDoesNotMatch. Only add checksums when required.
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED',
 });
 
 /** Returns a short-lived presigned PUT URL for uploading an object directly from the browser. */

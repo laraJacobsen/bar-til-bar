@@ -3,21 +3,20 @@
 import { useState } from 'react';
 import { createGroup, joinGroup, type GroupDoc } from '@/lib/group';
 
-// Lets an already-signed-in user create or join a group for the active event.
-// Rendered only before the crawl starts (the parent gates on !event.started).
+// Lets an already-signed-in user create OR join a group for the active event, from
+// inside the app (rendered on Home when the user has no group yet). Both options are
+// always available — a group created after the crawl has started simply follows the
+// default bar order (no route in the round-robin schedule), which the app handles.
 export function GroupJoinCreate({
   eventId,
   userId,
-  joinOnly = false,
   onSuccess,
 }: {
   eventId: string;
   userId: string;
-  joinOnly?: boolean;
   onSuccess?: (group: GroupDoc) => void;
 }) {
-  const [mode, setMode] = useState<'create' | 'join'>('create');
-  const effectiveMode = joinOnly ? 'join' : mode;
+  const [mode, setMode] = useState<'create' | 'join'>('join');
   const [groupName, setGroupName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,11 +24,11 @@ export function GroupJoinCreate({
 
   const submit = async () => {
     setError('');
-    if (effectiveMode === 'create' && !groupName.trim()) {
+    if (mode === 'create' && !groupName.trim()) {
       setError('Please name your group.');
       return;
     }
-    if (effectiveMode === 'join' && !code.trim()) {
+    if (mode === 'join' && !code.trim()) {
       setError('Please enter the group code.');
       return;
     }
@@ -37,7 +36,7 @@ export function GroupJoinCreate({
     setBusy(true);
     try {
       const group =
-        effectiveMode === 'create'
+        mode === 'create'
           ? await createGroup({ name: groupName.trim(), ownerId: userId, eventId })
           : await joinGroup({ code: code.trim(), userId, eventId });
       setGroupName('');
@@ -51,33 +50,33 @@ export function GroupJoinCreate({
   };
 
   const tab = (active: boolean) =>
-    `rounded-full py-2 text-xs font-semibold transition ${
-      active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-white'
+    `rounded-full py-2 text-[13px] font-bold transition ${
+      active ? 'bg-[rgba(255,90,168,.15)] text-[#ff5aa8]' : 'text-[#9b95ad] hover:text-[#f4f2f8]'
     }`;
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
-      <p className="text-sm font-semibold text-slate-200">Join the crawl</p>
-      <p className="mt-0.5 text-xs text-slate-500">{joinOnly ? 'Enter the group code from your crew.' : 'Create your own group or join one with a code.'}</p>
+    <div className="rounded-[18px] border border-white/[.06] bg-white/[.03] p-4">
+      <p className="text-[15px] font-bold text-[#f4f2f8]">Join the crawl</p>
+      <p className="mt-0.5 text-[12.5px] text-[#9b95ad]">
+        {mode === 'create' ? 'Name your crew and rally your friends.' : 'Enter the group code from your crew.'}
+      </p>
 
-      {!joinOnly && (
-        <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-full border border-white/5 bg-slate-950/60 p-1">
-          <button type="button" onClick={() => setMode('create')} className={tab(effectiveMode === 'create')}>
-            Make group
-          </button>
-          <button type="button" onClick={() => setMode('join')} className={tab(effectiveMode === 'join')}>
-            Join group
-          </button>
-        </div>
-      )}
+      <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-full border border-white/[.06] bg-black/20 p-1">
+        <button type="button" onClick={() => setMode('join')} className={tab(mode === 'join')}>
+          Join group
+        </button>
+        <button type="button" onClick={() => setMode('create')} className={tab(mode === 'create')}>
+          Make group
+        </button>
+      </div>
 
-      {effectiveMode === 'create' ? (
+      {mode === 'create' ? (
         <input
           value={groupName}
           onChange={(e) => setGroupName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
           placeholder="Neon Crew"
-          className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm outline-none focus:border-pink-500"
+          className="mt-3 w-full rounded-2xl border border-white/[.055] bg-white/[.028] px-4 py-3.5 text-[15px] font-semibold text-[#f4f2f8] outline-none placeholder:text-[#6a637f] focus:border-[#ff5aa8]"
         />
       ) : (
         <input
@@ -85,19 +84,19 @@ export function GroupJoinCreate({
           onChange={(e) => setCode(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
           placeholder="ABC123"
-          className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm uppercase tracking-widest outline-none focus:border-pink-500"
+          className="mt-3 w-full rounded-2xl border border-white/[.055] bg-white/[.028] px-4 py-3.5 text-[15px] font-semibold uppercase tracking-[3px] text-[#f4f2f8] outline-none placeholder:text-[#6a637f] focus:border-[#ff5aa8]"
         />
       )}
 
-      {error ? <p className="mt-2 text-sm text-rose-300">{error}</p> : null}
+      {error ? <p className="mt-2 text-[13px] font-semibold text-[#ff5aa8]">{error}</p> : null}
 
       <button
         type="button"
         onClick={submit}
         disabled={busy}
-        className="mt-3 w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:from-pink-600 hover:to-violet-600 disabled:cursor-not-allowed disabled:opacity-70"
+        className="mt-3 w-full rounded-2xl bg-[linear-gradient(135deg,#ff5aa8_0%,#c42ad6_52%,#7c3aed_100%)] px-4 py-3.5 text-[15px] font-bold text-white shadow-[0_8px_20px_rgba(0,0,0,.35)] transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {busy ? 'Working…' : effectiveMode === 'create' ? 'Create group' : 'Join group'}
+        {busy ? 'Working…' : mode === 'create' ? 'Create group' : 'Join group'}
       </button>
     </div>
   );
