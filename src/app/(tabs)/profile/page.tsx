@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Camera, LogOut, ShieldCheck } from 'lucide-react';
+import { Camera, Download, LogOut, ShieldCheck } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
-import { InstallApp } from '@/components/InstallApp';
+import { detectStandalone, openInstallSheet } from '@/lib/install';
 import { uploadToR2 } from '@/lib/upload';
 import { getActiveEvent, getUserCrawlArchives, updateUserPhoto } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
@@ -26,6 +26,11 @@ export default function ProfilePage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
+  const [canInstall, setCanInstall] = useState(false);
+
+  useEffect(() => {
+    setCanInstall(!detectStandalone());
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -163,7 +168,16 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <InstallApp />
+      {canInstall && (
+        <button
+          type="button"
+          onClick={openInstallSheet}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#ff5aa8_0%,#c42ad6_52%,#7c3aed_100%)] px-4 py-3.5 text-[15px] font-bold text-white shadow-[0_8px_20px_rgba(0,0,0,.35)] transition active:scale-[.98]"
+        >
+          <Download className="h-4 w-4" aria-hidden />
+          Add to home screen
+        </button>
+      )}
 
       {/* Account actions */}
       {archives.length > 0 && (
