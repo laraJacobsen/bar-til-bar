@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { collection, doc, deleteDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, deleteDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -142,24 +142,6 @@ export default function AdminPage() {
     return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
   }, [activeEvent?.id, activeEvent?.started]);
 
-  // Deletes event + all associated bars, challenges, groups, and submissions
-  const deleteEventFull = async (eventId: string) => {
-    const [barsSnap, challengesSnap, groupsSnap] = await Promise.all([
-      getDocs(collection(db, 'bars')),
-      getDocs(collection(db, 'challenges')),
-      getDocs(collection(db, 'groups')),
-    ]);
-
-    const batch = writeBatch(db);
-
-    barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
-    challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
-    groupsSnap.docs.filter((d) => (d.data() as any).eventId === eventId).forEach((d) => batch.delete(d.ref));
-
-    batch.delete(doc(db, 'events', eventId));
-    await batch.commit();
-  };
-
   const endAndDeleteCrawl = async () => {
     if (!activeEvent) return;
     try {
@@ -256,7 +238,7 @@ export default function AdminPage() {
     setIsInitializing(true);
     setMessage('');
     try {
-      const eventId = 'active-event';
+      const eventId = doc(collection(db, 'events')).id;
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
       const joinCode = Math.random().toString(36).slice(2, 8).toUpperCase();
