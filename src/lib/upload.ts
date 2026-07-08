@@ -3,6 +3,7 @@
 
 type UploadParams =
   | { kind: 'submission'; groupId: string; challengeId: string }
+  | { kind: 'fun'; groupId: string }
   | { kind: 'group-picture'; groupId: string }
   | { kind: 'profile-picture'; userId: string };
 

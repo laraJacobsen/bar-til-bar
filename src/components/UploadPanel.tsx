@@ -70,11 +70,13 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   };
 
   // Returning from the native camera (capture="environment") leaves the page scrolled
-  // where it was, so the newly-rendered preview + submit button can end up off-screen —
-  // scroll them into view so it doesn't look like nothing happened.
+  // where it was, so the newly-rendered preview + submit button can end up off-screen.
+  // Center them in the viewport (block: 'center', not 'end') so they never land under the
+  // fixed floating tab bar. Also re-run when the inline confirm dialog opens so its
+  // "Go back / Yes, submit" buttons are centered too.
   useEffect(() => {
-    if (file) submitButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [file]);
+    if (file) submitButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [file, confirming]);
 
   const handleSubmit = async () => {
     if (!file || !user || !groupId) return;

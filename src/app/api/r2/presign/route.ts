@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { kind, groupId, challengeId, userId, contentType } = body as {
-      kind?: 'submission' | 'group-picture' | 'profile-picture';
+      kind?: 'submission' | 'fun' | 'group-picture' | 'profile-picture';
       groupId?: string;
       challengeId?: string;
       userId?: string;
@@ -36,6 +36,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing groupId or challengeId' }, { status: 400 });
       }
       key = `submissions/${groupId}/${challengeId}-${timestamp}.${ext}`;
+    } else if (kind === 'fun') {
+      if (!groupId) {
+        return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });
+      }
+      key = `fun/${groupId}/${timestamp}.${ext}`;
     } else if (kind === 'group-picture') {
       if (!groupId) {
         return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });

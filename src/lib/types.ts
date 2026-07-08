@@ -43,8 +43,11 @@ export interface SubmissionDoc {
   userId?: string;
   groupId: string;
   groupName?: string;
-  barId: string;
-  challengeId: string;
+  // Optional: "just for fun" submissions have no challenge/bar (type === 'fun').
+  barId?: string;
+  challengeId?: string;
+  /** Absent = a challenge submission; 'fun' = a candid photo shared to the gallery. */
+  type?: 'challenge' | 'fun';
   photoUrl?: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
