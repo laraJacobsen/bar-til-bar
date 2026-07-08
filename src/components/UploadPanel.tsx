@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { RotateCw } from 'lucide-react';
 import { uploadToR2 } from '@/lib/upload';
 import { createSubmission, getActiveEvent } from '@/lib/firestore';
 import { getGroups, getUserGroup, adjustGroupScore } from '@/lib/group';
+import { useRotatablePhoto } from '@/lib/useRotatablePhoto';
 import { useAuth } from '@/components/AuthProvider';
 
 interface UploadPanelProps {
@@ -19,8 +21,7 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   const submitButtonRef = useRef<HTMLDivElement>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState('');
+  const photo = useRotatablePhoto();
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
@@ -53,9 +54,7 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   }, [user]);
 
   const clearSelection = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl('');
+    photo.reset();
     setConfirming(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -63,10 +62,8 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.files?.[0];
     if (!next) return;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setError('');
-    setFile(next);
-    setPreviewUrl(URL.createObjectURL(next));
+    photo.setSource(next);
   };
 
   // Returning from the native camera (capture="environment") leaves the page scrolled
@@ -75,18 +72,18 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   // fixed floating tab bar. Also re-run when the inline confirm dialog opens so its
   // "Go back / Yes, submit" buttons are centered too.
   useEffect(() => {
-    if (file) submitButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [file, confirming]);
+    if (photo.hasPhoto) submitButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [photo.hasPhoto, confirming]);
 
   const handleSubmit = async () => {
-    if (!file || !user || !groupId) return;
+    if (!photo.outputFile || !user || !groupId) return;
     setLoading(true);
     setError('');
     try {
       // Resolve the active event before uploading (fast Firestore read) so a slow-but-
       // successful R2 upload is never discarded by an unrelated failure racing it.
       const activeEvent = await getActiveEvent();
-      const photoUrl = await uploadToR2(file, { kind: 'submission', groupId, challengeId });
+      const photoUrl = await uploadToR2(photo.outputFile, { kind: 'submission', groupId, challengeId });
       await createSubmission({
         userId: user.uid,
         groupId,
@@ -128,9 +125,18 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
         disabled={loading}
         className="w-full rounded-2xl border border-white/10 bg-slate-900/70 p-3 text-sm text-slate-300"
       />
-      {previewUrl && (
+      {photo.hasPhoto && (
         <div className="relative">
-          <img src={previewUrl} alt="Preview" className="h-40 w-full rounded-2xl object-cover" />
+          <img src={photo.previewUrl} alt="Preview" className="h-40 w-full rounded-2xl object-cover" />
+          <button
+            type="button"
+            onClick={photo.rotate}
+            disabled={loading || photo.rotating}
+            className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-slate-950/80 px-3 py-1 text-xs font-medium text-white backdrop-blur transition disabled:opacity-60"
+            aria-label="Rotate photo"
+          >
+            <RotateCw className="h-3.5 w-3.5" aria-hidden /> Rotate
+          </button>
           <button
             type="button"
             onClick={clearSelection}
@@ -176,7 +182,7 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            disabled={!file || !groupId}
+            disabled={!photo.hasPhoto || !groupId}
             className="w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition"
           >
             Submit photo · +{pointsAwarded} pts
