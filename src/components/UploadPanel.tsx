@@ -16,6 +16,7 @@ interface UploadPanelProps {
 export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: UploadPanelProps) {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submitButtonRef = useRef<HTMLDivElement>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [groupName, setGroupName] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -30,18 +31,23 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
   useEffect(() => {
     if (!user?.uid) { setGroupId(null); return; }
     const resolve = async () => {
-      const [activeEvent, rawGroup, allGroups] = await Promise.all([
-        getActiveEvent(),
-        getUserGroup(user.uid),
-        getGroups(),
-      ]);
-      const eventGroups = activeEvent
-        ? allGroups.filter((g) => g.eventId === activeEvent.id)
-        : [];
-      const resolved =
-        eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
-      setGroupId(resolved?.id ?? null);
-      setGroupName(resolved?.name ?? null);
+      try {
+        const [activeEvent, rawGroup, allGroups] = await Promise.all([
+          getActiveEvent(),
+          getUserGroup(user.uid),
+          getGroups(),
+        ]);
+        const eventGroups = activeEvent
+          ? allGroups.filter((g) => g.eventId === activeEvent.id)
+          : [];
+        const resolved =
+          eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
+        setGroupId(resolved?.id ?? null);
+        setGroupName(resolved?.name ?? null);
+      } catch (err) {
+        console.error(err);
+        setError('Could not load your group. Try refreshing the page.');
+      }
     };
     resolve();
   }, [user]);
@@ -63,15 +69,22 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
     setPreviewUrl(URL.createObjectURL(next));
   };
 
+  // Returning from the native camera (capture="environment") leaves the page scrolled
+  // where it was, so the newly-rendered preview + submit button can end up off-screen —
+  // scroll them into view so it doesn't look like nothing happened.
+  useEffect(() => {
+    if (file) submitButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [file]);
+
   const handleSubmit = async () => {
     if (!file || !user || !groupId) return;
     setLoading(true);
     setError('');
     try {
-      const [photoUrl, activeEvent] = await Promise.all([
-        uploadToR2(file, { kind: 'submission', groupId, challengeId }),
-        getActiveEvent(),
-      ]);
+      // Resolve the active event before uploading (fast Firestore read) so a slow-but-
+      // successful R2 upload is never discarded by an unrelated failure racing it.
+      const activeEvent = await getActiveEvent();
+      const photoUrl = await uploadToR2(file, { kind: 'submission', groupId, challengeId });
       await createSubmission({
         userId: user.uid,
         groupId,
@@ -128,44 +141,46 @@ export function UploadPanel({ challengeId, barId, pointsAwarded, onSuccess }: Up
       )}
       {error && <p className="text-xs text-rose-300">{error}</p>}
 
-      {confirming ? (
-        <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 space-y-3">
-          <p className="text-sm font-semibold text-white">Submit this photo?</p>
-          <p className="text-xs text-slate-400">
-            This will add <span className="text-pink-300 font-semibold">+{pointsAwarded} pts</span> to your group.
-          </p>
-          <p className="text-xs text-amber-300/80 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-            ⚠ Your group can only submit once per challenge. This cannot be undone.
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              disabled={loading}
-              className="flex-1 rounded-full border border-white/10 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
-            >
-              Go back
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={loading}
-              className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-70 transition"
-            >
-              {loading ? 'Uploading…' : 'Yes, submit'}
-            </button>
+      <div ref={submitButtonRef}>
+        {confirming ? (
+          <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 space-y-3">
+            <p className="text-sm font-semibold text-white">Submit this photo?</p>
+            <p className="text-xs text-slate-400">
+              This will add <span className="text-pink-300 font-semibold">+{pointsAwarded} pts</span> to your group.
+            </p>
+            <p className="text-xs text-amber-300/80 rounded-xl bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+              ⚠ Your group can only submit once per challenge. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                disabled={loading}
+                className="flex-1 rounded-full border border-white/10 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-white/10"
+              >
+                Go back
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={loading}
+                className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-70 transition"
+              >
+                {loading ? 'Uploading…' : 'Yes, submit'}
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          disabled={!file || !groupId}
-          className="w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition"
-        >
-          Submit photo · +{pointsAwarded} pts
-        </button>
-      )}
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={!file || !groupId}
+            className="w-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 transition"
+          >
+            Submit photo · +{pointsAwarded} pts
+          </button>
+        )}
+      </div>
 
       {!groupId && (
         <p className="text-center text-xs text-slate-500">Join a group to submit.</p>

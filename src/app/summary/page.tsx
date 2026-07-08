@@ -1,17 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Heart, Trophy } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { getActiveEvent, getBars, getCrawlArchive } from '@/lib/firestore';
 import { getGroups } from '@/lib/group';
+import { useAuth } from '@/components/AuthProvider';
+import { getAllReactions, summarizeReactions, toggleReaction } from '@/lib/reactions';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/PhotoLightbox';
+import { CrawlHighlights, type HighlightPhoto } from '@/components/CrawlHighlights';
 import type { CrawlArchive, CrawlArchiveGroup, CrawlArchiveSubmission } from '@/lib/types';
 
 const MEDAL = ['🥇', '🥈', '🥉'];
+const HIGHLIGHTS_SEEN_KEY = (eventId: string) => `crawl-highlights-seen:${eventId}`;
 
 interface SummaryData {
+  eventId: string;
   eventName: string;
   groups: CrawlArchiveGroup[];
   submissions: CrawlArchiveSubmission[];
@@ -19,11 +26,16 @@ interface SummaryData {
 }
 
 function SummaryContent() {
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const archiveId = searchParams?.get('id') ?? null;
 
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [likedByMe, setLikedByMe] = useState<Record<string, boolean>>({});
+  const [activePhoto, setActivePhoto] = useState<LightboxPhoto | null>(null);
+  const [showHighlights, setShowHighlights] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -32,6 +44,7 @@ function SummaryContent() {
           const archive: CrawlArchive | null = await getCrawlArchive(archiveId);
           if (archive) {
             setData({
+              eventId: archive.eventId,
               eventName: archive.eventName,
               groups: [...archive.groups].sort((a, b) => b.score - a.score),
               submissions: archive.submissions,
@@ -57,6 +70,7 @@ function SummaryContent() {
             .filter((s: any) => !s.eventId || s.eventId === event.id);
 
           setData({
+            eventId: event.id,
             eventName: event.name,
             groups: eventGroups.map((g) => ({ id: g.id, name: g.name, color: g.color, score: g.score ?? 0, members: g.members })),
             submissions: allSubs,
@@ -70,9 +84,20 @@ function SummaryContent() {
       } finally {
         setLoading(false);
       }
+
+      // Reactions are fetched separately so a permissions/network hiccup on likes
+      // never blocks the actual crawl summary from loading.
+      try {
+        const reactions = await getAllReactions();
+        const { counts, likedByMe: mine } = summarizeReactions(reactions, user?.uid);
+        setLikeCounts(counts);
+        setLikedByMe(mine);
+      } catch (err) {
+        console.error('Failed to load reactions', err);
+      }
     };
     load();
-  }, [archiveId]);
+  }, [archiveId, user?.uid]);
 
   const groupPhotoCount = data
     ? Object.fromEntries(data.groups.map((g) => [g.id, data.submissions.filter((s) => s.groupId === g.id).length]))
@@ -89,6 +114,54 @@ function SummaryContent() {
   const hottestBar = data ? [...data.bars].sort((a, b) => (barSubCount[b.id] ?? 0) - (barSubCount[a.id] ?? 0))[0] : null;
   const totalPoints = data ? data.groups.reduce((sum, g) => sum + g.score, 0) : 0;
   const allPhotos = data ? data.submissions.filter((s) => s.photoUrl) : [];
+
+  const groupById = useMemo(() => new Map((data?.groups ?? []).map((g) => [g.id, g])), [data]);
+
+  const toLightboxPhoto = (s: CrawlArchiveSubmission): LightboxPhoto => {
+    const group = groupById.get(s.groupId);
+    return {
+      id: s.id,
+      photoUrl: s.photoUrl!,
+      groupName: group?.name || s.groupName || 'A crew',
+      groupColor: group?.color || '#ff5aa8',
+    };
+  };
+
+  const topReacted: HighlightPhoto[] = useMemo(() => {
+    return allPhotos
+      .filter((s) => s.status === 'approved' && (likeCounts[s.id] ?? 0) > 0)
+      .map((s) => ({ ...toLightboxPhoto(s), likeCount: likeCounts[s.id] ?? 0 }))
+      .sort((a, b) => b.likeCount - a.likeCount)
+      .slice(0, 6);
+  }, [allPhotos, likeCounts, groupById]);
+
+  // Auto-surface the highlights once per crawl (per browser) — dismissing it is
+  // remembered so revisiting an old crawl's summary doesn't nag every time, but the
+  // "Highlights" button below always lets a player reopen it on demand.
+  useEffect(() => {
+    if (!data || topReacted.length === 0) return;
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem(HIGHLIGHTS_SEEN_KEY(data.eventId))) return;
+    setShowHighlights(true);
+  }, [data, topReacted.length]);
+
+  const dismissHighlights = () => {
+    setShowHighlights(false);
+    if (data) localStorage.setItem(HIGHLIGHTS_SEEN_KEY(data.eventId), '1');
+  };
+
+  const handleToggleLike = async (photoId: string) => {
+    if (!user) return;
+    const wasLiked = !!likedByMe[photoId];
+    setLikedByMe((prev) => ({ ...prev, [photoId]: !wasLiked }));
+    setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? -1 : 1) }));
+    try {
+      await toggleReaction(photoId, user.uid);
+    } catch {
+      setLikedByMe((prev) => ({ ...prev, [photoId]: wasLiked }));
+      setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? 1 : -1) }));
+    }
+  };
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-6 pb-24">
@@ -176,20 +249,53 @@ function SummaryContent() {
 
           {allPhotos.length > 0 && (
             <section className="rounded-[2rem] border border-white/10 bg-white/10 p-5">
-              <h2 className="text-lg font-semibold mb-4">All photos</h2>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold">All photos</h2>
+                {topReacted.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHighlights(true)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-[rgba(255,90,168,.25)] bg-[rgba(255,90,168,.14)] px-3 py-1.5 text-xs font-bold text-[#ff5aa8]"
+                  >
+                    <Trophy className="h-3.5 w-3.5" aria-hidden />
+                    Highlights
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 {allPhotos.map((s) => {
-                  const group = data.groups.find((g) => g.id === s.groupId);
+                  const group = groupById.get(s.groupId);
+                  const liked = !!likedByMe[s.id];
+                  const count = likeCounts[s.id] ?? 0;
                   return (
-                    <div key={s.id} className="relative overflow-hidden rounded-xl">
+                    <div
+                      key={s.id}
+                      onClick={() => s.photoUrl && setActivePhoto(toLightboxPhoto(s))}
+                      className="relative overflow-hidden rounded-xl"
+                    >
                       <img src={s.photoUrl!} alt="" className="h-28 w-full object-cover" />
+                      {s.status === 'approved' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleLike(s.id);
+                          }}
+                          className={`absolute right-1 top-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold backdrop-blur-sm ${
+                            liked ? 'bg-[rgba(255,90,168,.3)] text-[#ff5aa8]' : 'bg-black/40 text-white'
+                          }`}
+                        >
+                          <Heart className="h-2.5 w-2.5" fill={liked ? '#ff5aa8' : 'none'} aria-hidden />
+                          {count > 0 && count}
+                        </button>
+                      )}
                       {group && (
                         <div className="absolute bottom-0 inset-x-0 flex items-center gap-1 bg-black/60 px-2 py-1">
                           <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: group.color ?? '#f43f5e' }} />
                           <p className="truncate text-[10px] text-white">{group.name}</p>
                         </div>
                       )}
-                      <span className={`absolute top-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.status === 'approved' ? 'bg-emerald-500/90' : s.status === 'rejected' ? 'bg-rose-500/90' : 'bg-yellow-500/90'}`}>
+                      <span className={`absolute top-1.5 left-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.status === 'approved' ? 'bg-[rgba(45,212,191,.9)]' : s.status === 'rejected' ? 'bg-rose-500/90' : 'bg-yellow-500/90'}`}>
                         {s.status === 'approved' ? '✓' : s.status === 'rejected' ? '✗' : '…'}
                       </span>
                     </div>
@@ -204,6 +310,25 @@ function SummaryContent() {
           </Link>
         </>
       )}
+
+      <CrawlHighlights
+        eventName={data?.eventName ?? ''}
+        photos={topReacted}
+        open={showHighlights}
+        onClose={dismissHighlights}
+        onSelectPhoto={(photo) => {
+          setShowHighlights(false);
+          setActivePhoto(photo);
+        }}
+      />
+
+      <PhotoLightbox
+        photo={activePhoto}
+        likeCount={activePhoto ? likeCounts[activePhoto.id] ?? 0 : 0}
+        liked={activePhoto ? !!likedByMe[activePhoto.id] : false}
+        onToggleLike={handleToggleLike}
+        onClose={() => setActivePhoto(null)}
+      />
     </main>
   );
 }

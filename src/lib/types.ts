@@ -88,3 +88,12 @@ export interface CrawlArchive {
   submissions: CrawlArchiveSubmission[];
   bars: CrawlArchiveBar[];
 }
+
+// One doc per (submissionId, userId) pair — doc id is `${submissionId}_${userId}`,
+// so a like is just create/delete of that doc (naturally idempotent, one per user).
+export interface ReactionDoc {
+  id: string;
+  submissionId: string;
+  userId: string;
+  createdAt: string;
+}

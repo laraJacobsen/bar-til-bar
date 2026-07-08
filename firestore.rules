@@ -47,6 +47,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Photo likes: one doc per (submission, user) pair, id `${submissionId}_${userId}`.
+    // Anyone signed in can like/unlike any approved photo, but only as themselves —
+    // the doc id itself encodes the pairing so it can't be spoofed as someone else's like.
+    match /reactions/{reactionId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null &&
+        request.resource.data.userId == request.auth.uid &&
+        reactionId == request.resource.data.submissionId + '_' + request.auth.uid;
+      allow delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
     // Users can only write their own profile document.
     match /users/{userId} {
       allow read: if request.auth != null;

@@ -27,9 +27,14 @@ export const googleProvider = new GoogleAuthProvider();
 // back to the default in-memory cache. The try/catch keeps dev fast-refresh from
 // throwing "Firestore already initialized" on module re-evaluation.
 function initDb(): Firestore {
+  // ignoreUndefinedProperties: writes throughout the app build docs with optional
+  // fields (e.g. submission.eventId, group.groupName) that can be `undefined` —
+  // without this, addDoc/setDoc throws "Unsupported field value: undefined" instead
+  // of just omitting the key, silently breaking writes like photo submissions.
   if (typeof window === 'undefined') return getFirestore(app);
   try {
     return initializeFirestore(app, {
+      ignoreUndefinedProperties: true,
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     });
   } catch {

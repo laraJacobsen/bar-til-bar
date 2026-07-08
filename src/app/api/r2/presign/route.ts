@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { presignUpload, publicUrl } from '@/lib/r2';
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,22 +29,23 @@ export async function POST(request: NextRequest) {
     }
 
     const timestamp = Date.now();
+    const ext = EXTENSION_BY_CONTENT_TYPE[contentType];
     let key: string;
     if (kind === 'submission') {
       if (!groupId || !challengeId) {
         return NextResponse.json({ error: 'Missing groupId or challengeId' }, { status: 400 });
       }
-      key = `submissions/${groupId}/${challengeId}-${timestamp}.jpg`;
+      key = `submissions/${groupId}/${challengeId}-${timestamp}.${ext}`;
     } else if (kind === 'group-picture') {
       if (!groupId) {
         return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });
       }
-      key = `group-pictures/${groupId}/picture-${timestamp}.jpg`;
+      key = `group-pictures/${groupId}/picture-${timestamp}.${ext}`;
     } else if (kind === 'profile-picture') {
       if (!userId) {
         return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
       }
-      key = `profile-pictures/${userId}/picture-${timestamp}.jpg`;
+      key = `profile-pictures/${userId}/picture-${timestamp}.${ext}`;
     } else {
       return NextResponse.json({ error: 'Invalid kind' }, { status: 400 });
     }
