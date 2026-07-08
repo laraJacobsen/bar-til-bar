@@ -5,7 +5,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebas
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
 import { createGroup, joinGroup } from '@/lib/group';
-import { getEventByJoinCode } from '@/lib/firestore';
+import { getActiveEvent, getEventByJoinCode } from '@/lib/firestore';
 
 export type DbUser = {
   uid: string;
@@ -149,6 +149,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const event = await getEventByJoinCode(crawlCode);
       if (!event) throw new Error('Invalid crawl code. Check with your organiser.');
       eventId = event.id;
+    } else {
+      // No crawl code → attach to the current active crawl. A group with no eventId
+      // would never surface under the event-scoped lookups, so always stamp one.
+      const active = await getActiveEvent();
+      eventId = active?.id;
     }
 
     // Create/join first — if the "one group per crawl" check throws, we leave

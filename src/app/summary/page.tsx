@@ -67,7 +67,7 @@ function SummaryContent() {
           );
           const allSubs = subsSnap.docs
             .map((d) => ({ id: d.id, ...(d.data() as any) }))
-            .filter((s: any) => !s.eventId || s.eventId === event.id);
+            .filter((s: any) => s.eventId === event.id); // strict: only this crawl's submissions
 
           setData({
             eventId: event.id,
