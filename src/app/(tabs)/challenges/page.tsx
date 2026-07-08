@@ -248,7 +248,7 @@ export default function ChallengesPage() {
       {/* Fun photo fullscreen overlay */}
       {funPhotoUrl && (
         <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
-          <div className="flex items-center justify-between px-4 py-4">
+          <div className="flex items-center justify-between px-4 py-4 pt-[calc(1rem+env(safe-area-inset-top))]">
             <p className="text-sm font-semibold text-slate-200">Memory</p>
             <button
               type="button"
