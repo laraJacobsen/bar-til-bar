@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
-import { Camera } from 'lucide-react';
+import { Camera, RotateCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
@@ -10,6 +10,7 @@ import { PageSkeleton } from '@/components/PageSkeleton';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, getChallenges, createSubmission } from '@/lib/firestore';
 import { uploadToR2 } from '@/lib/upload';
+import { useRotatablePhoto } from '@/lib/useRotatablePhoto';
 import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -29,8 +30,7 @@ export default function ChallengesPage() {
 
   // Fun camera state — capture a candid photo and optionally share it to the gallery
   const funInputRef = useRef<HTMLInputElement>(null);
-  const [funPhotoUrl, setFunPhotoUrl] = useState('');
-  const [funFile, setFunFile] = useState<File | null>(null);
+  const funPhoto = useRotatablePhoto();
   const [funSubmitting, setFunSubmitting] = useState(false);
   const [funSubmitted, setFunSubmitted] = useState(false);
   const [funError, setFunError] = useState('');
@@ -121,17 +121,13 @@ export default function ChallengesPage() {
   const handleFunPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (funPhotoUrl) URL.revokeObjectURL(funPhotoUrl);
-    setFunFile(file);
-    setFunPhotoUrl(URL.createObjectURL(file));
+    funPhoto.setSource(file);
     setFunSubmitted(false);
     setFunError('');
   };
 
   const closeFunPhoto = () => {
-    if (funPhotoUrl) URL.revokeObjectURL(funPhotoUrl);
-    setFunPhotoUrl('');
-    setFunFile(null);
+    funPhoto.reset();
     setFunSubmitting(false);
     setFunSubmitted(false);
     setFunError('');
@@ -141,11 +137,11 @@ export default function ChallengesPage() {
   // Share a "just for fun" photo to the event gallery. It becomes a submission with
   // type 'fun' (no challenge/bar/points) that an admin approves like any other photo.
   const handleFunSubmit = async () => {
-    if (!funFile || !user || !myGroup) return;
+    if (!funPhoto.outputFile || !user || !myGroup) return;
     setFunSubmitting(true);
     setFunError('');
     try {
-      const photoUrl = await uploadToR2(funFile, { kind: 'fun', groupId: myGroup.id });
+      const photoUrl = await uploadToR2(funPhoto.outputFile, { kind: 'fun', groupId: myGroup.id });
       await createSubmission({
         userId: user.uid,
         groupId: myGroup.id,
@@ -288,20 +284,31 @@ export default function ChallengesPage() {
       </section>
 
       {/* Fun photo fullscreen overlay */}
-      {funPhotoUrl && (
+      {funPhoto.hasPhoto && (
         <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
           <div className="flex items-center justify-between px-4 py-4 pt-[calc(1rem+env(safe-area-inset-top))]">
             <p className="text-sm font-semibold text-slate-200">Memory</p>
-            <button
-              type="button"
-              onClick={closeFunPhoto}
-              className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={funPhoto.rotate}
+                disabled={funPhoto.rotating}
+                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition disabled:opacity-60"
+                aria-label="Rotate photo"
+              >
+                <RotateCw className="h-4 w-4" aria-hidden /> Rotate
+              </button>
+              <button
+                type="button"
+                onClick={closeFunPhoto}
+                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+              >
+                Close
+              </button>
+            </div>
           </div>
           <img
-            src={funPhotoUrl}
+            src={funPhoto.previewUrl}
             alt="Fun photo"
             className="min-h-0 flex-1 w-full object-contain"
           />
