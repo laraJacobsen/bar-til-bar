@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { getActiveEvent } from '@/lib/firestore';
 
 export interface GroupDoc {
   id: string;
@@ -136,13 +137,17 @@ export async function joinGroup({ code, userId, eventId }: { code: string; userI
   return { ...update, id: groupDoc.id } as GroupDoc;
 }
 
+// Returns the user's group in the CURRENT active crawl only. A leftover group from a
+// previous crawl (different eventId) or an unscoped group (no eventId) is never
+// returned — each crawl requires joining/creating a fresh group.
 export async function getUserGroup(userId: string) {
   const q = query(collection(db, 'groups'), where('members', 'array-contains', userId));
   const snapshot = await getDocs(q);
   if (snapshot.empty) return null;
-  const groupDoc = snapshot.docs[0];
-  const group = groupDoc.data() as GroupDoc;
-  return { ...group, id: groupDoc.id };
+  const groups = snapshot.docs.map((d) => ({ ...(d.data() as GroupDoc), id: d.id }));
+  const activeEvent = await getActiveEvent();
+  const match = activeEvent ? groups.find((g) => g.eventId === activeEvent.id) : null;
+  return match ?? null;
 }
 
 export async function getGroups(): Promise<GroupDoc[]> {

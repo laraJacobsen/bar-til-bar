@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { collection, doc, deleteDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -238,6 +238,15 @@ export default function AdminPage() {
     setIsInitializing(true);
     setMessage('');
     try {
+      // Start clean: archive + end any still-active crawl first, so a new crawl never
+      // inherits the previous one's groups/bars/challenges. (archiveCrawl preserves a
+      // snapshot and deletes the live groups/bars/challenges; submissions are kept but
+      // stay scoped to their old eventId, so they're not visible in the new crawl.)
+      const activeSnap = await getDocs(query(collection(db, 'events'), where('status', '==', 'active')));
+      for (const d of activeSnap.docs) {
+        await archiveCrawl(d.id, (d.data() as { name?: string }).name ?? 'Previous crawl');
+      }
+
       const eventId = doc(collection(db, 'events')).id;
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
