@@ -775,10 +775,12 @@ export default function AdminPage() {
                       <div>
                         <p className="font-semibold">{group?.name ?? submission.groupName ?? 'Unknown group'}</p>
                         <p className="text-sm text-slate-300 mt-0.5">
-                          {challenge?.title ?? submission.challengeId}
+                          {submission.type === 'fun' ? 'Just for fun' : (challenge?.title ?? submission.challengeId)}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {bar?.name ?? submission.barId} · {new Date(submission.createdAt).toLocaleString()}
+                          {submission.type === 'fun'
+                            ? new Date(submission.createdAt).toLocaleString()
+                            : `${bar?.name ?? submission.barId} · ${new Date(submission.createdAt).toLocaleString()}`}
                         </p>
                       </div>
                       {submission.pointsAwarded ? (
@@ -859,11 +861,11 @@ export default function AdminPage() {
                             <div key={sub.id} className="rounded-xl overflow-hidden relative">
                               <img
                                 src={sub.photoUrl}
-                                alt={sub.challengeId}
+                                alt={sub.type === 'fun' ? 'Just for fun' : sub.challengeId}
                                 className="w-full h-32 object-cover"
                               />
                               <div className="absolute bottom-0 inset-x-0 bg-black/60 px-2 py-1 text-xs text-white truncate">
-                                {sub.challengeId}
+                                {sub.type === 'fun' ? 'Just for fun' : sub.challengeId}
                               </div>
                               <span
                                 className={`absolute top-2 right-2 rounded-full px-2 py-0.5 text-xs font-semibold ${

@@ -8,7 +8,8 @@ import { db } from '@/lib/firebase';
 import { UploadPanel } from '@/components/UploadPanel';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { useAuth } from '@/components/AuthProvider';
-import { getActiveEvent, getBars, getChallenges } from '@/lib/firestore';
+import { getActiveEvent, getBars, getChallenges, createSubmission } from '@/lib/firestore';
+import { uploadToR2 } from '@/lib/upload';
 import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -26,9 +27,13 @@ export default function ChallengesPage() {
   const [isAdvancing, setIsAdvancing] = useState(false);
   const [uploadChallengeId, setUploadChallengeId] = useState<string | null>(null);
 
-  // Fun camera state — no submission, just a preview
+  // Fun camera state — capture a candid photo and optionally share it to the gallery
   const funInputRef = useRef<HTMLInputElement>(null);
   const [funPhotoUrl, setFunPhotoUrl] = useState('');
+  const [funFile, setFunFile] = useState<File | null>(null);
+  const [funSubmitting, setFunSubmitting] = useState(false);
+  const [funSubmitted, setFunSubmitted] = useState(false);
+  const [funError, setFunError] = useState('');
 
   // Redirect when admin ends the crawl
   const lastEventIdRef = useRef<string | null>(null);
@@ -76,7 +81,12 @@ export default function ChallengesPage() {
           query(collection(db, 'submissions'), where('groupId', '==', resolvedGroup.id)),
         );
         setSubmittedIds(
-          new Set(subsSnap.docs.map((d) => (d.data() as SubmissionDoc).challengeId)),
+          new Set(
+            subsSnap.docs.flatMap((d) => {
+              const id = (d.data() as SubmissionDoc).challengeId;
+              return id ? [id] : []; // fun submissions have no challengeId — skip them
+            }),
+          ),
         );
       }
 
@@ -112,13 +122,45 @@ export default function ChallengesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (funPhotoUrl) URL.revokeObjectURL(funPhotoUrl);
+    setFunFile(file);
     setFunPhotoUrl(URL.createObjectURL(file));
+    setFunSubmitted(false);
+    setFunError('');
   };
 
   const closeFunPhoto = () => {
-    URL.revokeObjectURL(funPhotoUrl);
+    if (funPhotoUrl) URL.revokeObjectURL(funPhotoUrl);
     setFunPhotoUrl('');
+    setFunFile(null);
+    setFunSubmitting(false);
+    setFunSubmitted(false);
+    setFunError('');
     if (funInputRef.current) funInputRef.current.value = '';
+  };
+
+  // Share a "just for fun" photo to the event gallery. It becomes a submission with
+  // type 'fun' (no challenge/bar/points) that an admin approves like any other photo.
+  const handleFunSubmit = async () => {
+    if (!funFile || !user || !myGroup) return;
+    setFunSubmitting(true);
+    setFunError('');
+    try {
+      const photoUrl = await uploadToR2(funFile, { kind: 'fun', groupId: myGroup.id });
+      await createSubmission({
+        userId: user.uid,
+        groupId: myGroup.id,
+        groupName: myGroup.name,
+        photoUrl,
+        type: 'fun',
+        eventId: event?.id,
+      });
+      setFunSubmitted(true);
+    } catch (err) {
+      console.error('Fun photo submit failed', err);
+      setFunError('Could not share the photo. Please try again.');
+    } finally {
+      setFunSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -261,8 +303,25 @@ export default function ChallengesPage() {
           <img
             src={funPhotoUrl}
             alt="Fun photo"
-            className="flex-1 w-full object-contain"
+            className="min-h-0 flex-1 w-full object-contain"
           />
+          <div className="px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {funError && <p className="mb-2 text-center text-xs text-rose-300">{funError}</p>}
+            {funSubmitted ? (
+              <p className="rounded-full border border-[rgba(45,212,191,.3)] bg-[rgba(45,212,191,.12)] px-4 py-3 text-center text-sm font-semibold text-[#2dd4bf]">
+                ✓ Shared to the gallery — pending approval
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={handleFunSubmit}
+                disabled={funSubmitting || !myGroup}
+                className="w-full rounded-full bg-[linear-gradient(135deg,#ff5aa8_0%,#c42ad6_52%,#7c3aed_100%)] px-4 py-3.5 text-sm font-bold text-white shadow-[0_8px_20px_rgba(0,0,0,.35)] transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {funSubmitting ? 'Sharing…' : !myGroup ? 'Join a group to share' : 'Share to gallery'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

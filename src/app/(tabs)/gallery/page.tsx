@@ -52,7 +52,10 @@ export default function GalleryPage() {
               photoUrl: s.photoUrl!,
               groupName: group?.name || s.groupName || 'A crew',
               groupColor: group?.color || '#ff5aa8',
-              challengeTitle: challengeTitleById.get(s.challengeId) || '',
+              challengeTitle:
+                s.type === 'fun'
+                  ? 'Just for fun'
+                  : (s.challengeId ? challengeTitleById.get(s.challengeId) || '' : ''),
             };
           });
 
