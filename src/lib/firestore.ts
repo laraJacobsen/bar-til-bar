@@ -137,19 +137,19 @@ export async function getAllSubmissions(): Promise<SubmissionDoc[]> {
 }
 
 export async function archiveCrawl(eventId: string, eventName: string): Promise<void> {
-  const [groupsSnap, barsSnap, allSubs] = await Promise.all([
+  const [groupsSnap, barsSnap, challengesSnap, allSubs] = await Promise.all([
     getDocs(collection(db, 'groups')),
     getDocs(collection(db, 'bars')),
+    getDocs(collection(db, 'challenges')),
     getAllSubmissions(),
   ]);
 
-  const groups = groupsSnap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((g: any) => g.eventId === eventId || !g.eventId);
+  const groupDocs = groupsSnap.docs.filter((d) => (d.data() as any).eventId === eventId || !(d.data() as any).eventId);
+  const barDocs = barsSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
+  const challengeDocs = challengesSnap.docs.filter((d) => (d.data() as any).eventId === eventId);
 
-  const bars = barsSnap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((b: any) => b.eventId === eventId);
+  const groups = groupDocs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const bars = barDocs.map((d) => ({ id: d.id, ...(d.data() as any) }));
 
   const groupIds = new Set(groups.map((g: any) => g.id as string));
   const submissions = allSubs.filter(
@@ -187,6 +187,14 @@ export async function archiveCrawl(eventId: string, eventName: string): Promise<
   });
 
   await updateDoc(doc(db, 'events', eventId), { status: 'ended' });
+
+  // Clear the ended crawl's live groups/bars/challenges — they're preserved above in
+  // the archive, so leaving them in the live collections would only leak into the next crawl.
+  const batch = writeBatch(db);
+  groupDocs.forEach((d) => batch.delete(d.ref));
+  barDocs.forEach((d) => batch.delete(d.ref));
+  challengeDocs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
 }
 
 export async function getCrawlArchive(id: string): Promise<CrawlArchive | null> {
