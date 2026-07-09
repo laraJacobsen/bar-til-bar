@@ -17,42 +17,18 @@ export interface GroupDoc {
   barSequence?: number[];
 }
 
-// Standard circle-method round-robin: fix group 0, rotate the rest.
-// Returns one barSequence per group — barSequence[slot] = bar index for that time slot.
-function generateGroupBarSequences(numGroups: number, numBars: number): number[][] {
+// Cyclic Latin square: group g is at bar (g + slot) % numBars for each time slot.
+// Returns one barSequence per group — barSequence[slot] = bar index for that slot.
+// This guarantees every group visits every bar exactly once, in a distinct rotation
+// (no skipped or repeated bars — the previous circle-method version produced both,
+// which left groups stuck on a bar's challenges when their route revisited it).
+// When there are more groups than bars, the surplus groups share a bar — that's
+// where two groups meet (see meetingGroup in the home/challenges screens).
+export function generateGroupBarSequences(numGroups: number, numBars: number): number[][] {
   if (numGroups === 0 || numBars === 0) return [];
-  if (numGroups === 1) return [Array.from({ length: numBars }, (_, i) => i)];
-
-  const N = numGroups % 2 === 0 ? numGroups : numGroups + 1; // pad to even for clean pairing
-  const sequences: number[][] = Array.from({ length: numGroups }, () => []);
-  let circle = Array.from({ length: N - 1 }, (_, i) => i + 1);
-  const numRounds = Math.min(N - 1, numBars);
-
-  for (let round = 0; round < numRounds; round++) {
-    const half = Math.floor((N - 2) / 2);
-    const top = [0, ...circle.slice(0, half)];
-    const bottom = [...circle.slice(half)].reverse();
-
-    for (let i = 0; i < N / 2; i++) {
-      const g0 = top[i];
-      const g1 = bottom[i];
-      const bar = (round * Math.floor(N / 2) + i) % numBars;
-      if (g0 < numGroups) sequences[g0].push(bar);
-      if (g1 < numGroups) sequences[g1].push(bar);
-    }
-    circle = [circle[circle.length - 1], ...circle.slice(0, -1)];
-  }
-
-  // Pad remaining slots with unvisited bars, then wrap if needed
-  for (let g = 0; g < numGroups; g++) {
-    const used = new Set(sequences[g]);
-    for (let b = 0; b < numBars && sequences[g].length < numBars; b++) {
-      if (!used.has(b)) { sequences[g].push(b); used.add(b); }
-    }
-    while (sequences[g].length < numBars) sequences[g].push(sequences[g][sequences[g].length % numGroups] ?? 0);
-  }
-
-  return sequences;
+  return Array.from({ length: numGroups }, (_, g) =>
+    Array.from({ length: numBars }, (_, slot) => (g + slot) % numBars),
+  );
 }
 
 export async function recalculateSchedule(eventId: string): Promise<void> {
@@ -187,20 +163,6 @@ export async function getGroupMembers(memberIds: string[]): Promise<GroupMemberI
   );
 
   return memberDocs.flatMap((member) => (member ? [member] : []));
-}
-
-export async function advanceAllGroupsToNextBar(groupIds: string[], currentBarIndex: number) {
-  if (!groupIds.length) return (currentBarIndex + 1) % 4;
-
-  const batch = writeBatch(db);
-  const nextBarIndex = (currentBarIndex + 1) % 4;
-
-  groupIds.forEach((groupId) => {
-    batch.update(doc(db, 'groups', groupId), { currentBarIndex: nextBarIndex });
-  });
-
-  await batch.commit();
-  return nextBarIndex;
 }
 
 export async function adjustGroupScore(groupId: string, delta: number): Promise<void> {

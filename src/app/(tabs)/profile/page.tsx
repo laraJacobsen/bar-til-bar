@@ -11,13 +11,15 @@ import { detectStandalone, openInstallSheet } from '@/lib/install';
 import { uploadToR2 } from '@/lib/upload';
 import { getActiveEvent, getUserCrawlArchives, updateUserPhoto } from '@/lib/firestore';
 import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
-import type { CrawlArchive, SubmissionDoc } from '@/lib/types';
+import { useSchedule } from '@/lib/useSchedule';
+import type { CrawlArchive, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function ProfilePage() {
   const router = useRouter();
   const { user, dbUser, signOutUser } = useAuth();
 
   const [group, setGroup] = useState<GroupDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(null);
   const [totalSubmissions, setTotalSubmissions] = useState(0);
   const [approvedSubmissions, setApprovedSubmissions] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -48,6 +50,7 @@ export default function ProfilePage() {
       const resolvedGroup =
         eventGroups.find((g) => g.members?.includes(user.uid)) || rawGroup || null;
       setGroup(resolvedGroup);
+      setEvent(activeEvent);
 
       // Count this user's submissions in the active event
       const subsSnap = await getDocs(
@@ -89,6 +92,17 @@ export default function ProfilePage() {
       setUploadingPhoto(false);
     }
   };
+
+  // Current stop follows the event timer — the same source of truth as the home and
+  // challenges screens (useSchedule), not the legacy currentBarIndex which never advanced.
+  const startMs = event?.startsAt ? new Date(event.startsAt).getTime() : null;
+  const endMs = event?.endsAt ? new Date(event.endsAt).getTime() : null;
+  const { slot } = useSchedule(
+    event?.started ? startMs : null,
+    event?.started ? endMs : null,
+    group?.barSequence?.length ?? 0,
+  );
+  const currentStop = event?.started ? slot : 0;
 
   const displayName = dbUser?.displayName || user?.displayName || 'Traveler';
   const initial = displayName.charAt(0).toUpperCase();
@@ -163,7 +177,7 @@ export default function ProfilePage() {
           </div>
           <div className="rounded-2xl bg-slate-900/60 p-4">
             <p className="text-xs uppercase tracking-wider text-slate-500">Current stop</p>
-            <p className="mt-2 text-2xl font-bold">{loading ? '—' : group ? `#${(group.currentBarIndex ?? 0) + 1}` : '—'}</p>
+            <p className="mt-2 text-2xl font-bold">{loading ? '—' : group ? `#${currentStop + 1}` : '—'}</p>
           </div>
         </div>
       </section>
