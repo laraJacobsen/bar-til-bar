@@ -41,7 +41,7 @@ export default function GalleryPage() {
             (s) =>
               !!s.photoUrl &&
               s.status === 'approved' &&
-              (!s.eventId || s.eventId === eventId), // lenient event scope (matches summary page)
+              !!eventId && s.eventId === eventId, // strict: only the active crawl's photos, never prior/unscoped
           )
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)) // newest first (ISO string)
           .map((s) => {
@@ -51,7 +51,10 @@ export default function GalleryPage() {
               photoUrl: s.photoUrl!,
               groupName: group?.name || s.groupName || 'A crew',
               groupColor: group?.color || '#ff5aa8',
-              challengeTitle: challengeTitleById.get(s.challengeId) || '',
+              challengeTitle:
+                s.type === 'fun'
+                  ? 'Just for fun'
+                  : (s.challengeId ? challengeTitleById.get(s.challengeId) || '' : ''),
             };
           });
 

@@ -55,7 +55,7 @@ export default function ProfilePage() {
       );
       const subs = subsSnap.docs.map((d) => d.data() as SubmissionDoc);
       const eventSubs = activeEvent
-        ? subs.filter((s) => !s.eventId || s.eventId === activeEvent.id)
+        ? subs.filter((s) => s.eventId === activeEvent.id) // strict: only the active crawl's submissions
         : subs;
 
       setTotalSubmissions(eventSubs.length);

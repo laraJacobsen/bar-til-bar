@@ -18,7 +18,7 @@ export default function TabsLayout({ children }: { children: React.ReactNode }) 
   return (
     <>
       {children}
-      <nav className="fixed bottom-4 left-4 right-4 z-20 mx-auto flex max-w-md justify-around rounded-[24px] border border-white/[.085] bg-[rgba(20,16,28,.7)] px-2 py-2 shadow-[0_16px_40px_rgba(0,0,0,.4)] backdrop-blur-[24px]">
+      <nav className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 z-20 mx-auto flex max-w-md justify-around rounded-[24px] border border-white/[.085] bg-[rgba(20,16,28,.7)] px-2 py-2 shadow-[0_16px_40px_rgba(0,0,0,.4)] backdrop-blur-[24px]">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);

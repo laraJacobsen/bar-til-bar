@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { MapPin } from 'lucide-react';
+import { ChevronRight, History, MapPin } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -527,6 +527,16 @@ export default function HomePage() {
         </section>
       )}
 
+      <Link
+        href="/recap"
+        className="flex items-center justify-between rounded-[22px] border border-white/[.08] bg-white/[.045] px-5 py-4 text-sm font-semibold text-[#f4f2f8] backdrop-blur-[20px] transition hover:bg-white/[.07]"
+      >
+        <span className="flex items-center gap-2.5">
+          <History className="h-4 w-4 text-[#ff5aa8]" aria-hidden />
+          Past crawls
+        </span>
+        <ChevronRight className="h-4 w-4 text-[#6a637f]" aria-hidden />
+      </Link>
     </main>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { collection, doc, deleteDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, deleteDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
@@ -80,6 +80,8 @@ export default function AdminPage() {
 
   // End crawl confirmation
   const [endConfirm, setEndConfirm] = useState(false);
+  // Names of still-active crawls that a new-crawl init would end — non-null shows a confirm.
+  const [initConfirm, setInitConfirm] = useState<string[] | null>(null);
 
   // Photo gallery drill-down
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
@@ -233,11 +235,32 @@ export default function AdminPage() {
     setWizardBars((prev) => prev.filter((_, idx) => idx !== index));
   };
 
+  // Button handler: guard the destructive path. The wizard is normally only reachable
+  // when no crawl is active, but re-check the DB in case of stale state / a concurrent
+  // admin — if a crawl is still active, confirm (stating the risks) before ending it.
   const handleInitializeCrawl = async () => {
     if (wizardBars.length === 0 || !crawlName.trim()) return;
+    const activeSnap = await getDocs(query(collection(db, 'events'), where('status', '==', 'active')));
+    if (!activeSnap.empty) {
+      setInitConfirm(activeSnap.docs.map((d) => (d.data() as { name?: string }).name ?? 'Untitled crawl'));
+      return;
+    }
+    await doInitializeCrawl();
+  };
+
+  const doInitializeCrawl = async () => {
     setIsInitializing(true);
     setMessage('');
     try {
+      // Start clean: archive + end any still-active crawl first, so a new crawl never
+      // inherits the previous one's groups/bars/challenges. (archiveCrawl preserves a
+      // snapshot and deletes the live groups/bars/challenges; submissions are kept but
+      // stay scoped to their old eventId, so they're not visible in the new crawl.)
+      const activeSnap = await getDocs(query(collection(db, 'events'), where('status', '==', 'active')));
+      for (const d of activeSnap.docs) {
+        await archiveCrawl(d.id, (d.data() as { name?: string }).name ?? 'Previous crawl');
+      }
+
       const eventId = doc(collection(db, 'events')).id;
       const startsAt = new Date(startTime).toISOString();
       const endsAt = new Date(new Date(startTime).getTime() + durationHours * 60 * 60 * 1000).toISOString();
@@ -290,6 +313,7 @@ export default function AdminPage() {
       setMessage(err instanceof Error ? err.message : 'Failed to initialize crawl.');
     } finally {
       setIsInitializing(false);
+      setInitConfirm(null);
     }
   };
 
@@ -775,10 +799,12 @@ export default function AdminPage() {
                       <div>
                         <p className="font-semibold">{group?.name ?? submission.groupName ?? 'Unknown group'}</p>
                         <p className="text-sm text-slate-300 mt-0.5">
-                          {challenge?.title ?? submission.challengeId}
+                          {submission.type === 'fun' ? 'Just for fun' : (challenge?.title ?? submission.challengeId)}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {bar?.name ?? submission.barId} · {new Date(submission.createdAt).toLocaleString()}
+                          {submission.type === 'fun'
+                            ? new Date(submission.createdAt).toLocaleString()
+                            : `${bar?.name ?? submission.barId} · ${new Date(submission.createdAt).toLocaleString()}`}
                         </p>
                       </div>
                       {submission.pointsAwarded ? (
@@ -859,11 +885,11 @@ export default function AdminPage() {
                             <div key={sub.id} className="rounded-xl overflow-hidden relative">
                               <img
                                 src={sub.photoUrl}
-                                alt={sub.challengeId}
+                                alt={sub.type === 'fun' ? 'Just for fun' : sub.challengeId}
                                 className="w-full h-32 object-cover"
                               />
                               <div className="absolute bottom-0 inset-x-0 bg-black/60 px-2 py-1 text-xs text-white truncate">
-                                {sub.challengeId}
+                                {sub.type === 'fun' ? 'Just for fun' : sub.challengeId}
                               </div>
                               <span
                                 className={`absolute top-2 right-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -894,10 +920,15 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setEndConfirm(false)} />
           <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
-            <h3 className="text-lg font-semibold">End crawl?</h3>
+            <h3 className="text-lg font-semibold">End &ldquo;{activeEvent.name}&rdquo;?</h3>
             <p className="mt-2 text-sm text-slate-400">
-              This saves <strong>{activeEvent.name}</strong> permanently to all participants&apos; profiles and redirects everyone to the summary screen.
+              This ends the crawl and saves the results to everyone&apos;s summary screen. It can&apos;t be undone.
             </p>
+            <ul className="mt-3 space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[13px] text-amber-200/90">
+              <li>• All groups, stops, and challenges are removed from the live crawl (kept in the archive, not lost).</li>
+              <li>• Everyone is redirected to the summary; participants must join a new group for the next crawl.</li>
+              <li>• Submitted photos stay in the archive but won&apos;t appear in any future crawl.</li>
+            </ul>
             <div className="mt-4 flex justify-end gap-3">
               <button
                 onClick={() => setEndConfirm(false)}
@@ -910,6 +941,38 @@ export default function AdminPage() {
                 className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 transition"
               >
                 End &amp; Save Results
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {initConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setInitConfirm(null)} />
+          <div className="relative mx-4 w-full max-w-md rounded-2xl bg-slate-900/90 p-6 border border-white/10">
+            <h3 className="text-lg font-semibold">Start a new crawl?</h3>
+            <p className="mt-2 text-sm text-slate-400">
+              A crawl is still active ({initConfirm.join(', ')}). Starting a new one ends it first. This can&apos;t be undone.
+            </p>
+            <ul className="mt-3 space-y-1.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[13px] text-amber-200/90">
+              <li>• The current crawl&apos;s groups, stops, and challenges are removed (kept in the archive).</li>
+              <li>• Its participants are sent to the summary and must join a new group.</li>
+            </ul>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => setInitConfirm(null)}
+                disabled={isInitializing}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={doInitializeCrawl}
+                disabled={isInitializing}
+                className="rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 transition disabled:opacity-60"
+              >
+                {isInitializing ? 'Working…' : 'End current & start new'}
               </button>
             </div>
           </div>

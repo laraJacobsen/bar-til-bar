@@ -42,7 +42,7 @@ export default function LeaderboardPage() {
           const counts: Record<string, number> = {};
           snap.docs.forEach((d) => {
             const s = d.data() as SubmissionDoc;
-            if (!s.eventId || s.eventId === event.id) {
+            if (s.eventId === event.id) { // strict: only this crawl's submissions count
               counts[s.groupId] = (counts[s.groupId] ?? 0) + 1;
             }
           });
