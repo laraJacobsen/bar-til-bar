@@ -11,12 +11,13 @@ import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getBars, getChallenges, createSubmission } from '@/lib/firestore';
 import { uploadToR2 } from '@/lib/upload';
 import { useRotatablePhoto } from '@/lib/useRotatablePhoto';
-import { getGroups, getUserGroup, advanceAllGroupsToNextBar, type GroupDoc } from '@/lib/group';
+import { getGroups, getUserGroup, type GroupDoc } from '@/lib/group';
+import { useSchedule } from '@/lib/useSchedule';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 export default function ChallengesPage() {
   const router = useRouter();
-  const { user, dbUser } = useAuth();
+  const { user } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(null);
   const [myGroup, setMyGroup] = useState<GroupDoc | null>(null);
   const [allGroups, setAllGroups] = useState<GroupDoc[]>([]);
@@ -24,8 +25,6 @@ export default function ChallengesPage() {
   const [challenges, setChallenges] = useState<ChallengeDoc[]>([]);
   const [submittedIds, setSubmittedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [isAdvancing, setIsAdvancing] = useState(false);
   const [uploadChallengeId, setUploadChallengeId] = useState<string | null>(null);
 
   // Fun camera state — capture a candid photo and optionally share it to the gallery
@@ -95,7 +94,18 @@ export default function ChallengesPage() {
     load();
   }, [user]);
 
-  const currentSlot = myGroup?.currentBarIndex ?? 0;
+  // Current stop is driven by the event timer — the single source of truth shared with
+  // the home page (useSchedule). Before the crawl starts there's no schedule yet, so fall
+  // back to slot 0. (currentBarIndex is legacy and no longer read: a group's stop advances
+  // automatically with time, so the challenges here always match the group's real bar.)
+  const startMs = event?.startsAt ? new Date(event.startsAt).getTime() : null;
+  const endMs = event?.endsAt ? new Date(event.endsAt).getTime() : null;
+  const { slot: liveSlot } = useSchedule(
+    event?.started ? startMs : null,
+    event?.started ? endMs : null,
+    bars.length,
+  );
+  const currentSlot = event?.started ? liveSlot : 0;
   const barIdx = myGroup?.barSequence ? (myGroup.barSequence[currentSlot] ?? currentSlot) : currentSlot;
   const currentBar = bars[barIdx] ?? null;
   const currentChallenges = challenges.filter((c) => c.barId === currentBar?.id);
@@ -103,20 +113,6 @@ export default function ChallengesPage() {
   const meetingGroup = allGroups.find(
     (g) => g.id !== myGroup?.id && (g.barSequence ? g.barSequence[currentSlot] : currentSlot) === barIdx,
   );
-
-  const handleAdvance = async () => {
-    if (!myGroup) return;
-    setIsAdvancing(true);
-    try {
-      const groupIds = allGroups.map((g) => g.id);
-      await advanceAllGroupsToNextBar(groupIds, currentSlot);
-      setMyGroup((prev) => prev ? { ...prev, currentBarIndex: (currentSlot + 1) % bars.length } : prev);
-      setAllGroups((prev) => prev.map((g) => ({ ...g, currentBarIndex: (currentSlot + 1) % bars.length })));
-    } finally {
-      setIsAdvancing(false);
-      setShowConfirmModal(false);
-    }
-  };
 
   const handleFunPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -328,41 +324,6 @@ export default function ChallengesPage() {
                 {funSubmitting ? 'Sharing…' : !myGroup ? 'Join a group to share' : 'Share to gallery'}
               </button>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Admin-only: advance all groups */}
-      {dbUser?.role === 'admin' && (
-        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Admin: advance crawl</h2>
-              <p className="text-sm text-slate-400 mt-1">Move all groups to the next stop.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowConfirmModal(true)}
-              disabled={isAdvancing || currentSlot >= bars.length - 1}
-              className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {isAdvancing ? 'Moving…' : 'Next stop →'}
-            </button>
-          </div>
-        </section>
-      )}
-
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6">
-            <h3 className="text-xl font-semibold">Move to next stop?</h3>
-            <p className="mt-2 text-sm text-slate-400">This advances all groups simultaneously.</p>
-            <div className="mt-5 flex gap-3">
-              <button onClick={() => setShowConfirmModal(false)} className="flex-1 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold">Cancel</button>
-              <button onClick={handleAdvance} disabled={isAdvancing} className="flex-1 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white">
-                {isAdvancing ? 'Moving…' : 'Yes, continue'}
-              </button>
-            </div>
           </div>
         </div>
       )}
