@@ -9,7 +9,7 @@ import { db } from '@/lib/firebase';
 import { getActiveEvent, getBars, getCrawlArchive } from '@/lib/firestore';
 import { getGroups } from '@/lib/group';
 import { useAuth } from '@/components/AuthProvider';
-import { getAllReactions, summarizeReactions, toggleReaction } from '@/lib/reactions';
+import { useReactions } from '@/lib/useReactions';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/PhotoLightbox';
 import { CrawlHighlights, type HighlightPhoto } from '@/components/CrawlHighlights';
 import type { CrawlArchive, CrawlArchiveGroup, CrawlArchiveSubmission } from '@/lib/types';
@@ -32,10 +32,9 @@ function SummaryContent() {
 
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
-  const [likedByMe, setLikedByMe] = useState<Record<string, boolean>>({});
   const [activePhoto, setActivePhoto] = useState<LightboxPhoto | null>(null);
   const [showHighlights, setShowHighlights] = useState(false);
+  const { likeCounts, likedByMe, loadReactions, toggleLike } = useReactions(user?.uid);
 
   useEffect(() => {
     const load = async () => {
@@ -88,16 +87,13 @@ function SummaryContent() {
       // Reactions are fetched separately so a permissions/network hiccup on likes
       // never blocks the actual crawl summary from loading.
       try {
-        const reactions = await getAllReactions();
-        const { counts, likedByMe: mine } = summarizeReactions(reactions, user?.uid);
-        setLikeCounts(counts);
-        setLikedByMe(mine);
+        await loadReactions();
       } catch (err) {
         console.error('Failed to load reactions', err);
       }
     };
     load();
-  }, [archiveId, user?.uid]);
+  }, [archiveId, loadReactions]);
 
   const groupPhotoCount = data
     ? Object.fromEntries(data.groups.map((g) => [g.id, data.submissions.filter((s) => s.groupId === g.id).length]))
@@ -148,19 +144,6 @@ function SummaryContent() {
   const dismissHighlights = () => {
     setShowHighlights(false);
     if (data) localStorage.setItem(HIGHLIGHTS_SEEN_KEY(data.eventId), '1');
-  };
-
-  const handleToggleLike = async (photoId: string) => {
-    if (!user) return;
-    const wasLiked = !!likedByMe[photoId];
-    setLikedByMe((prev) => ({ ...prev, [photoId]: !wasLiked }));
-    setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? -1 : 1) }));
-    try {
-      await toggleReaction(photoId, user.uid);
-    } catch {
-      setLikedByMe((prev) => ({ ...prev, [photoId]: wasLiked }));
-      setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? 1 : -1) }));
-    }
   };
 
   return (
@@ -279,7 +262,7 @@ function SummaryContent() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleToggleLike(s.id);
+                            toggleLike(s.id);
                           }}
                           className={`absolute right-1 top-1 flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold backdrop-blur-sm ${
                             liked ? 'bg-[rgba(255,90,168,.3)] text-[#ff5aa8]' : 'bg-black/40 text-white'
@@ -326,7 +309,7 @@ function SummaryContent() {
         photo={activePhoto}
         likeCount={activePhoto ? likeCounts[activePhoto.id] ?? 0 : 0}
         liked={activePhoto ? !!likedByMe[activePhoto.id] : false}
-        onToggleLike={handleToggleLike}
+        onToggleLike={toggleLike}
         onClose={() => setActivePhoto(null)}
       />
     </main>

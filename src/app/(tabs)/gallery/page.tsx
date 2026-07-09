@@ -5,7 +5,7 @@ import { Heart } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { getActiveEvent, getAllSubmissions, getChallenges } from '@/lib/firestore';
 import { getGroups } from '@/lib/group';
-import { getAllReactions, summarizeReactions, toggleReaction } from '@/lib/reactions';
+import { useReactions } from '@/lib/useReactions';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/PhotoLightbox';
 
@@ -14,10 +14,9 @@ type GalleryPhoto = LightboxPhoto;
 export default function GalleryPage() {
   const { user } = useAuth();
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
-  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
-  const [likedByMe, setLikedByMe] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [activePhoto, setActivePhoto] = useState<GalleryPhoto | null>(null);
+  const { likeCounts, likedByMe, loadReactions, toggleLike } = useReactions(user?.uid);
 
   useEffect(() => {
     if (!user) return;
@@ -66,30 +65,13 @@ export default function GalleryPage() {
       // Reactions are fetched separately so a permissions/network hiccup on likes
       // never blocks the photos themselves from showing — hearts just default to 0.
       try {
-        const reactions = await getAllReactions();
-        const { counts, likedByMe: mine } = summarizeReactions(reactions, user.uid);
-        setLikeCounts(counts);
-        setLikedByMe(mine);
+        await loadReactions();
       } catch (err) {
         console.error('Failed to load reactions', err);
       }
     };
     load();
-  }, [user]);
-
-  const handleToggleLike = async (photoId: string) => {
-    if (!user) return;
-    const wasLiked = !!likedByMe[photoId];
-    // Optimistic update — reflect the tap immediately, reconcile if the write fails.
-    setLikedByMe((prev) => ({ ...prev, [photoId]: !wasLiked }));
-    setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? -1 : 1) }));
-    try {
-      await toggleReaction(photoId, user.uid);
-    } catch {
-      setLikedByMe((prev) => ({ ...prev, [photoId]: wasLiked }));
-      setLikeCounts((prev) => ({ ...prev, [photoId]: (prev[photoId] ?? 0) + (wasLiked ? 1 : -1) }));
-    }
-  };
+  }, [user, loadReactions]);
 
   if (loading) return <PageSkeleton />;
 
@@ -127,7 +109,7 @@ export default function GalleryPage() {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggleLike(photo.id);
+                    toggleLike(photo.id);
                   }}
                   className={`absolute right-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold backdrop-blur-sm transition ${
                     liked ? 'bg-[rgba(255,90,168,.25)] text-[#ff5aa8]' : 'bg-black/40 text-white'
@@ -163,7 +145,7 @@ export default function GalleryPage() {
         photo={activePhoto}
         likeCount={activePhoto ? likeCounts[activePhoto.id] ?? 0 : 0}
         liked={activePhoto ? !!likedByMe[activePhoto.id] : false}
-        onToggleLike={handleToggleLike}
+        onToggleLike={toggleLike}
         onClose={() => setActivePhoto(null)}
       />
     </main>

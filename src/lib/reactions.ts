@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { ReactionDoc } from '@/lib/types';
 
@@ -12,15 +12,21 @@ export async function getAllReactions(): Promise<ReactionDoc[]> {
 }
 
 // Toggles the current user's like on a photo. Returns the new liked state.
+// Runs as a transaction so two rapid toggles on the same photo (e.g. a fast
+// double-tap) serialize instead of racing: a plain read-then-write here let
+// both calls read "not liked" before either write landed, so both ended up
+// creating the doc and the like got stuck on with no way to undo it.
 export async function toggleReaction(submissionId: string, userId: string): Promise<boolean> {
   const ref = doc(db, 'reactions', reactionId(submissionId, userId));
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    await deleteDoc(ref);
-    return false;
-  }
-  await setDoc(ref, { submissionId, userId, createdAt: new Date().toISOString() });
-  return true;
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists()) {
+      tx.delete(ref);
+      return false;
+    }
+    tx.set(ref, { submissionId, userId, createdAt: new Date().toISOString() });
+    return true;
+  });
 }
 
 // Reduces a flat reaction list into per-submission like counts and which of them
