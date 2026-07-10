@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, getDocs, increment, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { getActiveEvent } from '@/lib/firestore';
+import { getActiveEvent, recordCrawlParticipation } from '@/lib/firestore';
 
 export interface GroupDoc {
   id: string;
@@ -78,6 +78,7 @@ export async function createGroup({ name, ownerId, color, eventId }: { name: str
     ...(eventId ? { eventId } : {}),
   };
   await setDoc(groupRef, group);
+  if (eventId) await recordCrawlParticipation(ownerId, eventId);
   // Routes (barSequence) are assigned authoritatively when the admin starts the crawl
   // (see startCrawl -> recalculateSchedule). We intentionally don't recalculate here:
   // it would batch-write every group in the event, which a non-admin joiner isn't
@@ -108,6 +109,7 @@ export async function joinGroup({ code, userId, eventId }: { code: string; userI
   const members = group.members.includes(userId) ? group.members : [...group.members, userId];
   const update = { ...group, members, ...(eventId ? { eventId } : {}) };
   await setDoc(doc(db, 'groups', groupDoc.id), update, { merge: true });
+  if (eventForCheck) await recordCrawlParticipation(userId, eventForCheck);
   // No recalculateSchedule here — routes are assigned when the admin starts the crawl.
   // (Recalc batch-writes every group, which a non-admin joiner can't do.)
   return { ...update, id: groupDoc.id } as GroupDoc;

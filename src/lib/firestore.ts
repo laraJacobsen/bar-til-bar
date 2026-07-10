@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, increment, limit, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { BarDoc, ChallengeDoc, CrawlArchive, EventDoc, SubmissionDoc } from '@/lib/types';
 
@@ -203,11 +203,41 @@ export async function getCrawlArchive(id: string): Promise<CrawlArchive | null> 
   return { id: snap.id, ...(snap.data() as Omit<CrawlArchive, 'id'>) };
 }
 
+/**
+ * Durable participation record. Adds `eventId` to `users/{userId}.crawls` so a user's
+ * crawl history no longer depends on being present in the archive's end-time `memberIds`
+ * snapshot (which excludes admins and is lost if a group was already gone at archive time).
+ * Called when a user joins/creates a group or an admin starts a crawl. Users write only
+ * their own doc, so this is allowed by the security rules.
+ */
+export async function recordCrawlParticipation(userId: string, eventId: string): Promise<void> {
+  await setDoc(doc(db, 'users', userId), { crawls: arrayUnion(eventId) }, { merge: true });
+}
+
 export async function getUserCrawlArchives(userId: string): Promise<CrawlArchive[]> {
-  const snap = await getDocs(
+  const byId = new Map<string, CrawlArchive>();
+
+  // (1) Archives that captured this user in their end-time memberIds snapshot (legacy path,
+  //     still covers everyone archived before durable participation existed).
+  const byMember = await getDocs(
     query(collection(db, 'crawlArchives'), where('memberIds', 'array-contains', userId)),
   );
-  return snap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Omit<CrawlArchive, 'id'>) }))
-    .sort((a, b) => b.endedAt.localeCompare(a.endedAt));
+  byMember.docs.forEach((d) => byId.set(d.id, { id: d.id, ...(d.data() as Omit<CrawlArchive, 'id'>) }));
+
+  // (2) Crawls recorded durably on the user doc (covers admins/organizers and any crawl
+  //     whose memberIds snapshot was empty/wrong). Only ended crawls have an archive.
+  const userSnap = await getDoc(doc(db, 'users', userId));
+  const crawlIds: string[] = (userSnap.exists() ? (userSnap.data().crawls as string[] | undefined) : undefined) ?? [];
+  await Promise.all(
+    crawlIds
+      .filter((id) => !byId.has(id))
+      .map(async (id) => {
+        const snap = await getDoc(doc(db, 'crawlArchives', id));
+        if (snap.exists()) byId.set(id, { id: snap.id, ...(snap.data() as Omit<CrawlArchive, 'id'>) });
+      }),
+  );
+
+  // Null-safe sort: a single archive with a missing endedAt must never throw and hide the
+  // whole list (previously `b.endedAt.localeCompare` would reject the entire read).
+  return Array.from(byId.values()).sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''));
 }
