@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
-import { getUserCrawlArchives } from '@/lib/firestore';
+import { getAllCrawlArchives } from '@/lib/firestore';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import type { CrawlArchive } from '@/lib/types';
 
@@ -13,17 +13,14 @@ export default function RecapPage() {
   const [archives, setArchives] = useState<CrawlArchive[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Show ALL archived crawls to anyone (not scoped to the viewer). `user` is still used
+  // per-card to highlight the viewer's own group/rank when they were in that crawl.
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    getUserCrawlArchives(user.uid)
+    getAllCrawlArchives()
       .then(setArchives)
       .catch((err) => console.error('Failed to load crawl history', err))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, []);
 
   if (loading) return <PageSkeleton />;
 
@@ -32,7 +29,7 @@ export default function RecapPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[2.5px] text-[#ff5aa8]">Past crawls</p>
-          <h1 className="mt-0.5 text-2xl font-semibold">Your crawl history</h1>
+          <h1 className="mt-0.5 text-2xl font-semibold">All crawls</h1>
         </div>
         <Link
           href="/"

@@ -241,3 +241,12 @@ export async function getUserCrawlArchives(userId: string): Promise<CrawlArchive
   // whole list (previously `b.endedAt.localeCompare` would reject the entire read).
   return Array.from(byId.values()).sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''));
 }
+
+/** Every archived crawl, newest first — not scoped to any user. Used by the /recap
+ *  history hub so anyone can browse all past crawls. Null-safe sort. */
+export async function getAllCrawlArchives(): Promise<CrawlArchive[]> {
+  const snap = await getDocs(collection(db, 'crawlArchives'));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<CrawlArchive, 'id'>) }))
+    .sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''));
+}
