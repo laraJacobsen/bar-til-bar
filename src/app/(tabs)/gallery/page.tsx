@@ -15,7 +15,7 @@ export default function GalleryPage() {
   const { user } = useAuth();
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activePhoto, setActivePhoto] = useState<GalleryPhoto | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const { likeCounts, likedByMe, loadReactions, toggleLike } = useReactions(user?.uid);
 
   useEffect(() => {
@@ -93,13 +93,13 @@ export default function GalleryPage() {
         </div>
       ) : (
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {photos.map((photo) => {
+          {photos.map((photo, i) => {
             const liked = !!likedByMe[photo.id];
             const count = likeCounts[photo.id] ?? 0;
             return (
               <div
                 key={photo.id}
-                onClick={() => setActivePhoto(photo)}
+                onClick={() => setActiveIndex(i)}
                 className="relative aspect-square overflow-hidden rounded-[24px] border border-white/[.055]"
               >
                 <img
@@ -145,11 +145,13 @@ export default function GalleryPage() {
       )}
 
       <PhotoLightbox
-        photo={activePhoto}
-        likeCount={activePhoto ? likeCounts[activePhoto.id] ?? 0 : 0}
-        liked={activePhoto ? !!likedByMe[activePhoto.id] : false}
+        photos={photos}
+        index={activeIndex}
+        likeCounts={likeCounts}
+        likedByMe={likedByMe}
         onToggleLike={toggleLike}
-        onClose={() => setActivePhoto(null)}
+        onIndexChange={setActiveIndex}
+        onClose={() => setActiveIndex(null)}
       />
     </main>
   );
