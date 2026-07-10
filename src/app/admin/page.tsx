@@ -7,7 +7,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthProvider';
 import { GroupJoinCreate } from '@/components/GroupJoinCreate';
 import { type GroupDoc, recalculateSchedule } from '@/lib/group';
-import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl } from '@/lib/firestore';
+import { getAllSubmissions, getChallenges, getEvents, approveSubmission, rejectSubmission, archiveCrawl, recordCrawlParticipation } from '@/lib/firestore';
 import type { BarDoc, ChallengeDoc, EventDoc, SubmissionDoc } from '@/lib/types';
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
@@ -305,6 +305,9 @@ export default function AdminPage() {
           });
         }
       }
+
+      // Record the organizer as a participant so this crawl shows in their history too.
+      if (user) await recordCrawlParticipation(user.uid, eventId);
 
       await loadData();
       setShowWizard(false);
