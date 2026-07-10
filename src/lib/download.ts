@@ -1,14 +1,13 @@
-// Cross-origin URLs (R2's public bucket domain) ignore the <a download> attribute in
-// most browsers — fetch the image as a blob first so the download is same-origin (blob:).
-export async function downloadImage(url: string, filename: string): Promise<void> {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
+// A client-side fetch of the R2 public URL is blocked by CORS (and cross-origin
+// <a download> is ignored), so go through our same-origin proxy, which streams the
+// image back with an attachment disposition — a real download with no CORS dependency.
+export function downloadImage(url: string, filename: string): void {
+  const href = `/api/r2/download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(filename)}`;
   const link = document.createElement('a');
-  link.href = objectUrl;
+  link.href = href;
   link.download = filename;
+  link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(objectUrl);
 }

@@ -32,7 +32,7 @@ function SummaryContent() {
 
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activePhoto, setActivePhoto] = useState<LightboxPhoto | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [showHighlights, setShowHighlights] = useState(false);
   const { likeCounts, likedByMe, loadReactions, toggleLike } = useReactions(user?.uid);
 
@@ -122,6 +122,10 @@ function SummaryContent() {
       groupColor: group?.color || '#ff5aa8',
     };
   };
+
+  // Ordered list backing the lightbox — same order as the photo grid, so the grid index
+  // (and a highlight's photo id) map straight to a swipe position.
+  const lightboxPhotos = allPhotos.map(toLightboxPhoto);
 
   const topReacted: HighlightPhoto[] = useMemo(() => {
     return allPhotos
@@ -246,14 +250,14 @@ function SummaryContent() {
                 )}
               </div>
               <div className="grid grid-cols-3 gap-2">
-                {allPhotos.map((s) => {
+                {allPhotos.map((s, idx) => {
                   const group = groupById.get(s.groupId);
                   const liked = !!likedByMe[s.id];
                   const count = likeCounts[s.id] ?? 0;
                   return (
                     <div
                       key={s.id}
-                      onClick={() => s.photoUrl && setActivePhoto(toLightboxPhoto(s))}
+                      onClick={() => s.photoUrl && setActiveIndex(idx)}
                       className="relative overflow-hidden rounded-xl"
                     >
                       <img src={s.photoUrl!} alt="" className="h-28 w-full object-cover" />
@@ -301,16 +305,19 @@ function SummaryContent() {
         onClose={dismissHighlights}
         onSelectPhoto={(photo) => {
           setShowHighlights(false);
-          setActivePhoto(photo);
+          const idx = lightboxPhotos.findIndex((p) => p.id === photo.id);
+          if (idx >= 0) setActiveIndex(idx);
         }}
       />
 
       <PhotoLightbox
-        photo={activePhoto}
-        likeCount={activePhoto ? likeCounts[activePhoto.id] ?? 0 : 0}
-        liked={activePhoto ? !!likedByMe[activePhoto.id] : false}
+        photos={lightboxPhotos}
+        index={activeIndex}
+        likeCounts={likeCounts}
+        likedByMe={likedByMe}
         onToggleLike={toggleLike}
-        onClose={() => setActivePhoto(null)}
+        onIndexChange={setActiveIndex}
+        onClose={() => setActiveIndex(null)}
       />
     </main>
   );
